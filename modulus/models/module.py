@@ -24,7 +24,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Union
 
-import torch
+import paddle
 
 import modulus
 from modulus.models.meta import ModelMetaData
@@ -32,10 +32,10 @@ from modulus.registry import ModelRegistry
 from modulus.utils.filesystem import _download_cached, _get_fs
 
 
-class Module(torch.nn.Module):
+class Module(paddle.nn.Layer):
     """The base class for all network models in Modulus.
 
-    This should be used as a direct replacement for torch.nn.module and provides
+    This should be used as a direct replacement for paddle.nn.module and provides
     additional functionality for saving and loading models, as well as
     handling file system abstractions.
 
@@ -91,7 +91,7 @@ class Module(torch.nn.Module):
     def __init__(self, meta: Union[ModelMetaData, None] = None):
         super().__init__()
         self.meta = meta
-        self.register_buffer("device_buffer", torch.empty(0))
+        self.register_buffer("device_buffer", paddle.empty([0]))
         self._setup_logger()
 
     def _setup_logger(self):
@@ -213,7 +213,7 @@ class Module(torch.nn.Module):
         with tempfile.TemporaryDirectory() as temp_dir:
             local_path = Path(temp_dir)
 
-            torch.save(self.state_dict(), local_path / "model.pt")
+            paddle.save(self.state_dict(), local_path / "model.pt")
 
             with open(local_path / "args.json", "w") as f:
                 json.dump(self._args, f)
@@ -273,7 +273,7 @@ class Module(torch.nn.Module):
     def load(
         self,
         file_name: str,
-        map_location: Union[None, str, torch.device] = None,
+        map_location: Union[None, str] = None,
         strict: bool = True,
     ) -> None:
         """Simple utility for loading the model weights from checkpoint
@@ -282,7 +282,7 @@ class Module(torch.nn.Module):
         ----------
         file_name : str
             Checkpoint file name
-        map_location : Union[None, str, torch.device], optional
+        map_location : Union[None, str, paddle.device], optional
             Map location for loading the model weights, by default None will use model's device
         strict: bool, optional
             whether to strictly enforce that the keys in state_dict match, by default True
@@ -310,11 +310,9 @@ class Module(torch.nn.Module):
             Module._check_checkpoint(local_path)
 
             # Load the model weights
-            device = map_location if map_location is not None else self.device
-            model_dict = torch.load(
-                local_path.joinpath("model.pt"), map_location=device
-            )
-            self.load_state_dict(model_dict, strict=strict)
+            # device = map_location if map_location is not None else self.device
+            model_dict = paddle.load(local_path.joinpath("model.pt"))
+            self.set_state_dict(model_dict, strict=strict)
 
     @classmethod
     def from_checkpoint(cls, file_name: str) -> "Module":
@@ -357,22 +355,20 @@ class Module(torch.nn.Module):
             model = cls.instantiate(args)
 
             # Load the model weights
-            model_dict = torch.load(
-                local_path.joinpath("model.pt"), map_location=model.device
-            )
-            model.load_state_dict(model_dict)
+            model_dict = paddle.load(local_path.joinpath("model.pt"))
+            model.set_state_dict(model_dict)
 
         return model
 
     @staticmethod
     def from_torch(
-        torch_model_class: torch.nn.Module, meta: ModelMetaData = None
+        torch_model_class: paddle.nn.Layer, meta: ModelMetaData = None
     ) -> "Module":
         """Construct a Modulus module from a PyTorch module
 
         Parameters
         ----------
-        torch_model_class : torch.nn.Module
+        torch_model_class : paddle.nn.Layer
             PyTorch module class
         meta : ModelMetaData, optional
             Meta data for the model, by default None
@@ -425,15 +421,15 @@ class Module(torch.nn.Module):
         return ModulusModel
 
     @property
-    def device(self) -> torch.device:
+    def device(self) -> paddle.CUDAPlace:
         """Get device model is on
 
         Returns
         -------
-        torch.device
+        paddle.device
             PyTorch device
         """
-        return self.device_buffer.device
+        return self.device_buffer.place
 
     def num_parameters(self) -> int:
         """Gets the number of learnable parameters"""

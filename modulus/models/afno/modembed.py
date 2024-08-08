@@ -16,11 +16,11 @@
 
 from typing import Type
 
-import torch
-from torch import Tensor, nn
+import paddle
+from paddle import Tensor, nn
 
 
-class PositionalEmbedding(nn.Module):
+class PositionalEmbedding(nn.Layer):
     """
     A module for generating positional embeddings based on timesteps.
 
@@ -34,18 +34,18 @@ class PositionalEmbedding(nn.Module):
         super().__init__()
         self.num_channels = num_channels
 
-        freqs = torch.pi * torch.arange(
-            start=1, end=self.num_channels // 2 + 1, dtype=torch.float32
+        freqs = paddle.pi * paddle.arange(
+            start=1, end=self.num_channels // 2 + 1, dtype=paddle.float32
         )
         self.register_buffer("freqs", freqs)
 
     def forward(self, x: Tensor) -> Tensor:
-        x = x.view(-1).outer(self.freqs.to(x.dtype))
-        x = torch.cat([x.cos(), x.sin()], dim=1)
+        x = x.reshape([-1]).outer(self.freqs.to(x.dtype))
+        x = paddle.concat([x.cos(), x.sin()], axis=1)
         return x
 
 
-class OneHotEmbedding(nn.Module):
+class OneHotEmbedding(nn.Layer):
     """
     A module for generating one-hot embeddings based on timesteps.
 
@@ -58,16 +58,16 @@ class OneHotEmbedding(nn.Module):
     def __init__(self, num_channels: int):
         super().__init__()
         self.num_channels = num_channels
-        ind = torch.arange(num_channels)
-        ind = ind.view(1, len(ind))
+        ind = paddle.arange(num_channels)
+        ind = ind.reshape([1, len(ind)])
         self.register_buffer("indices", ind)
 
     def forward(self, t: Tensor) -> Tensor:
         ind = t * (self.num_channels - 1)
-        return torch.clamp(1 - torch.abs(ind - self.indices), min=0)
+        return paddle.clamp(1 - paddle.abs(ind - self.indices), min=0)
 
 
-class ModEmbedNet(nn.Module):
+class ModEmbedNet(nn.Layer):
     """
     A network that generates a timestep embedding and processes it with an MLP.
 
@@ -90,7 +90,7 @@ class ModEmbedNet(nn.Module):
         max_time: float = 1.0,
         dim: int = 64,
         depth: int = 1,
-        activation_fn: Type[nn.Module] = nn.GELU,
+        activation_fn: Type[nn.Layer] = nn.GELU,
         method: str = "sinusoidal",
     ):
         super().__init__()

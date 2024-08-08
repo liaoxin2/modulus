@@ -18,9 +18,9 @@ from dataclasses import dataclass
 from functools import partial
 from typing import List
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import paddle
+import paddle.nn as nn
+import paddle.nn.functional as F
 
 import modulus  # noqa: F401 for docs
 import modulus.models.layers.fft as fft
@@ -28,10 +28,10 @@ import modulus.models.layers.fft as fft
 from ..meta import ModelMetaData
 from ..module import Module
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
-class AFNOMlp(nn.Module):
+class AFNOMlp(nn.Layer):
     """Fully-connected Multi-layer perception used inside AFNO
 
     Parameters
@@ -42,7 +42,7 @@ class AFNOMlp(nn.Module):
         Latent feature size
     out_features : int
         Output feature size
-    activation_fn :  nn.Module, optional
+    activation_fn :  nn.Layer, optional
         Activation function, by default nn.GELU
     drop : float, optional
         Drop out rate, by default 0.0
@@ -53,7 +53,7 @@ class AFNOMlp(nn.Module):
         in_features: int,
         latent_features: int,
         out_features: int,
-        activation_fn: nn.Module = nn.GELU(),
+        activation_fn: nn.Layer = nn.GELU(),
         drop: float = 0.0,
     ):
         super().__init__()
@@ -71,7 +71,7 @@ class AFNOMlp(nn.Module):
         return x
 
 
-class AFNO2DLayer(nn.Module):
+class AFNO2DLayer(nn.Layer):
     """AFNO spectral convolution layer
 
     Parameters
@@ -110,30 +110,58 @@ class AFNO2DLayer(nn.Module):
         self.hidden_size_factor = hidden_size_factor
         self.scale = 0.02
 
-        self.w1 = nn.Parameter(
-            self.scale
-            * torch.randn(
+        self.w1 = self.create_parameter(
+            shape=[
                 2,
                 self.num_blocks,
                 self.block_size,
                 self.block_size * self.hidden_size_factor,
-            )
+            ],
+            default_initializer=nn.initializer.Assign(
+                self.scale
+                * paddle.randn(
+                    [
+                        2,
+                        self.num_blocks,
+                        self.block_size,
+                        self.block_size * self.hidden_size_factor,
+                    ]
+                )
+            ),
         )
-        self.b1 = nn.Parameter(
-            self.scale
-            * torch.randn(2, self.num_blocks, self.block_size * self.hidden_size_factor)
+        self.b1 = self.create_parameter(
+            shape=[2, self.num_blocks, self.block_size * self.hidden_size_factor],
+            default_initializer=nn.initializer.Assign(
+                self.scale
+                * paddle.randn(
+                    [2, self.num_blocks, self.block_size * self.hidden_size_factor]
+                )
+            ),
         )
-        self.w2 = nn.Parameter(
-            self.scale
-            * torch.randn(
+        self.w2 = self.create_parameter(
+            shape=[
                 2,
                 self.num_blocks,
                 self.block_size * self.hidden_size_factor,
                 self.block_size,
-            )
+            ],
+            default_initializer=nn.initializer.Assign(
+                self.scale
+                * paddle.randn(
+                    [
+                        2,
+                        self.num_blocks,
+                        self.block_size * self.hidden_size_factor,
+                        self.block_size,
+                    ]
+                )
+            ),
         )
-        self.b2 = nn.Parameter(
-            self.scale * torch.randn(2, self.num_blocks, self.block_size)
+        self.b2 = self.create_parameter(
+            shape=[2, self.num_blocks, self.block_size],
+            default_initializer=nn.initializer.Assign(
+                self.scale * paddle.randn([2, self.num_blocks, self.block_size])
+            ),
         )
 
     def forward(self, x: Tensor) -> Tensor:
@@ -145,10 +173,10 @@ class AFNO2DLayer(nn.Module):
         # Using ONNX friendly FFT functions
         x = fft.rfft2(x, dim=(1, 2), norm="ortho")
         x_real, x_imag = fft.real(x), fft.imag(x)
-        x_real = x_real.reshape(B, H, W // 2 + 1, self.num_blocks, self.block_size)
-        x_imag = x_imag.reshape(B, H, W // 2 + 1, self.num_blocks, self.block_size)
+        x_real = x_real.reshape([B, H, W // 2 + 1, self.num_blocks, self.block_size])
+        x_imag = x_imag.reshape([B, H, W // 2 + 1, self.num_blocks, self.block_size])
 
-        o1_real = torch.zeros(
+        o1_real = paddle.zeros(
             [
                 B,
                 H,
@@ -158,7 +186,7 @@ class AFNO2DLayer(nn.Module):
             ],
             device=x.device,
         )
-        o1_imag = torch.zeros(
+        o1_imag = paddle.zeros(
             [
                 B,
                 H,
@@ -168,7 +196,7 @@ class AFNO2DLayer(nn.Module):
             ],
             device=x.device,
         )
-        o2 = torch.zeros(x_real.shape + (2,), device=x.device)
+        o2 = paddle.zeros(x_real.shape + (2,), device=x.device)
 
         total_modes = H // 2 + 1
         kept_modes = int(total_modes * self.hard_thresholding_fraction)
@@ -176,14 +204,14 @@ class AFNO2DLayer(nn.Module):
         o1_real[
             :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
         ] = F.relu(
-            torch.einsum(
+            paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 x_real[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
                 ],
                 self.w1[0],
             )
-            - torch.einsum(
+            - paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 x_imag[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
@@ -196,14 +224,14 @@ class AFNO2DLayer(nn.Module):
         o1_imag[
             :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
         ] = F.relu(
-            torch.einsum(
+            paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 x_imag[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
                 ],
                 self.w1[0],
             )
-            + torch.einsum(
+            + paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 x_real[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
@@ -216,14 +244,14 @@ class AFNO2DLayer(nn.Module):
         o2[
             :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes, ..., 0
         ] = (
-            torch.einsum(
+            paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 o1_real[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
                 ],
                 self.w2[0],
             )
-            - torch.einsum(
+            - paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 o1_imag[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
@@ -236,14 +264,14 @@ class AFNO2DLayer(nn.Module):
         o2[
             :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes, ..., 1
         ] = (
-            torch.einsum(
+            paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 o1_imag[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
                 ],
                 self.w2[0],
             )
-            + torch.einsum(
+            + paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 o1_real[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
@@ -254,14 +282,14 @@ class AFNO2DLayer(nn.Module):
         )
 
         x = F.softshrink(o2, lambd=self.sparsity_threshold)
-        x = fft.view_as_complex(x)
+        x = fft.as_complex(x)
         # TODO(akamenev): replace the following branching with
         # a one-liner, something like x.reshape(..., -1).squeeze(-1),
         # but this currently fails during ONNX export.
-        if torch.onnx.is_in_onnx_export():
+        if False:
             x = x.reshape(B, H, W // 2 + 1, C, 2)
         else:
-            x = x.reshape(B, H, W // 2 + 1, C)
+            x = x.reshape([B, H, W // 2 + 1, C])
         # Using ONNX friendly FFT functions
         x = fft.irfft2(x, s=(H, W), dim=(1, 2), norm="ortho")
         x = x.type(dtype)
@@ -269,7 +297,7 @@ class AFNO2DLayer(nn.Module):
         return x + bias
 
 
-class Block(nn.Module):
+class Block(nn.Layer):
     """AFNO block, spectral convolution and MLP
 
     Parameters
@@ -282,9 +310,9 @@ class Block(nn.Module):
         Ratio of MLP latent variable size to input feature size, by default 4.0
     drop : float, optional
         Drop out rate in MLP, by default 0.0
-    activation_fn: nn.Module, optional
+    activation_fn: nn.Layer, optional
         Activation function used in MLP, by default nn.GELU
-    norm_layer : nn.Module, optional
+    norm_layer : nn.Layer, optional
         Normalization function, by default nn.LayerNorm
     double_skip : bool, optional
         Residual, by default True
@@ -300,8 +328,8 @@ class Block(nn.Module):
         num_blocks: int = 8,
         mlp_ratio: float = 4.0,
         drop: float = 0.0,
-        activation_fn: nn.Module = nn.GELU(),
-        norm_layer: nn.Module = nn.LayerNorm,
+        activation_fn: nn.Layer = nn.GELU(),
+        norm_layer: nn.Layer = nn.LayerNorm,
         double_skip: bool = True,
         sparsity_threshold: float = 0.01,
         hard_thresholding_fraction: float = 1.0,
@@ -338,7 +366,7 @@ class Block(nn.Module):
         return x
 
 
-class PatchEmbed(nn.Module):
+class PatchEmbed(nn.Layer):
     """Patch embedding layer
 
     Converts 2D patch into a 1D vector for input to AFNO
@@ -446,10 +474,10 @@ class AFNO(Module):
     ...     depth=2,
     ...     num_blocks=2,
     ... )
-    >>> input = torch.randn(32, 2, 32, 32) #(N, C, H, W)
+    >>> input = paddle.randn([32, 2, 32, 32) #(N, C, H, W)
     >>> output = model(input)
     >>> output.size()
-    torch.Size([32, 1, 32, 32])
+    paddle.Size([32, 1, 32, 32])
 
     Note
     ----
@@ -500,13 +528,18 @@ class AFNO(Module):
         )
         num_patches = self.patch_embed.num_patches
 
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
+        self.pos_embed = self.create_parameter(
+            shape=[1, num_patches, embed_dim],
+            default_initializer=nn.initializer.Assign(
+                paddle.zeros([1, num_patches, embed_dim])
+            ),
+        )
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         self.h = inp_shape[0] // self.patch_size[0]
         self.w = inp_shape[1] // self.patch_size[1]
 
-        self.blocks = nn.ModuleList(
+        self.blocks = nn.LayerList(
             [
                 Block(
                     embed_dim=embed_dim,
@@ -527,13 +560,13 @@ class AFNO(Module):
             bias=False,
         )
 
-        torch.nn.init.trunc_normal_(self.pos_embed, std=0.02)
+        paddle.nn.init.trunc_normal_(self.pos_embed, std=0.02)
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
         """Init model weights"""
         if isinstance(m, nn.Linear):
-            torch.nn.init.trunc_normal_(m.weight, std=0.02)
+            paddle.nn.init.trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -541,7 +574,7 @@ class AFNO(Module):
             nn.init.constant_(m.weight, 1.0)
 
     # What is this for
-    # @torch.jit.ignore
+    # @paddle.jit.ignore
     # def no_weight_decay(self):
     #     return {"pos_embed", "cls_token"}
 
@@ -552,7 +585,7 @@ class AFNO(Module):
         x = x + self.pos_embed
         x = self.pos_drop(x)
 
-        x = x.reshape(B, self.h, self.w, self.embed_dim)
+        x = x.reshape([B, self.h, self.w, self.embed_dim])
         for blk in self.blocks:
             x = blk(x)
 
@@ -564,9 +597,11 @@ class AFNO(Module):
 
         # Correct tensor shape back into [B, C, H, W]
         # [b h w (p1 p2 c_out)]
-        out = x.view(list(x.shape[:-1]) + [self.patch_size[0], self.patch_size[1], -1])
+        out = x.reshape(
+            list(x.shape[:-1]) + [self.patch_size[0], self.patch_size[1], -1]
+        )
         # [b h w p1 p2 c_out]
-        out = torch.permute(out, (0, 5, 1, 3, 2, 4))
+        out = paddle.transpose(out, (0, 5, 1, 3, 2, 4))
         # [b c_out, h, p1, w, p2]
         out = out.reshape(list(out.shape[:2]) + [self.inp_shape[0], self.inp_shape[1]])
         # [b c_out, (h*p1), (w*p2)]

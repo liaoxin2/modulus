@@ -18,9 +18,9 @@ from dataclasses import dataclass
 from functools import partial
 from typing import List, Literal, Type, Union
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import paddle
+import paddle.nn as nn
+import paddle.nn.functional as F
 
 import modulus  # noqa: F401 for docs
 import modulus.models.layers.fft as fft
@@ -30,10 +30,10 @@ from modulus.models.module import Module
 
 from .modembed import ModEmbedNet
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
-class ScaleShiftMlp(nn.Module):
+class ScaleShiftMlp(nn.Layer):
     """MLP used to compute the scale and shift parameters of the ModAFNO block
 
     Parameters
@@ -46,7 +46,7 @@ class ScaleShiftMlp(nn.Module):
         Hidden feature size, defaults to 2 * out_features
     hidden_layers : int, optional
         Number of hidden layers, defaults to 0
-    activation_fn : nn.Module, optional
+    activation_fn : nn.Layer, optional
         Activation function, by default nn.GELU
     """
 
@@ -56,7 +56,7 @@ class ScaleShiftMlp(nn.Module):
         out_features: int,
         hidden_features: Union[int, None] = None,
         hidden_layers: int = 0,
-        activation_fn: Type[nn.Module] = nn.GELU,
+        activation_fn: Type[nn.Layer] = nn.GELU,
     ):
         super().__init__()
         if hidden_features is None:
@@ -69,7 +69,7 @@ class ScaleShiftMlp(nn.Module):
         self.net = nn.Sequential(*sequence)
 
     def forward(self, x: Tensor):
-        (scale, shift) = torch.chunk(self.net(x), 2, dim=1)
+        (scale, shift) = paddle.chunk(self.net(x), 2, dim=1)
         return (1 + scale, shift)
 
 
@@ -84,7 +84,7 @@ class ModAFNOMlp(AFNOMlp):
         Latent feature size
     out_features : int
         Output feature size
-    activation_fn :  nn.Module, optional
+    activation_fn :  nn.Layer, optional
         Activation function, by default nn.GELU
     drop : float, optional
         Drop out rate, by default 0.0
@@ -98,7 +98,7 @@ class ModAFNOMlp(AFNOMlp):
         latent_features: int,
         out_features: int,
         mod_features: int,
-        activation_fn: nn.Module = nn.GELU(),
+        activation_fn: nn.Layer = nn.GELU(),
         drop: float = 0.0,
         scale_shift_kwargs: Union[dict, None] = None,
     ):
@@ -119,8 +119,8 @@ class ModAFNOMlp(AFNOMlp):
         (scale, shift) = self.scale_shift(mod_embed)
 
         scale_shift_shape = (scale.shape[0],) + (1,) * (x.ndim - 2) + (scale.shape[1],)
-        scale = scale.view(*scale_shift_shape)
-        shift = shift.view(*scale_shift_shape)
+        scale = scale.reshape([*scale_shift_shape])
+        shift = shift.reshape([*scale_shift_shape])
 
         x = self.fc1(x)
         x = x * scale + shift
@@ -209,22 +209,22 @@ class ModAFNO2DLayer(AFNO2DLayer):
         )
         scale_shift_shape = (B, self.channel_mul, 1, o1_shape[3], o1_shape[4])
 
-        o1_real = torch.zeros(o1_shape, device=x.device)
-        o1_imag = torch.zeros(o1_shape, device=x.device)
-        o2 = torch.zeros(x_real.shape + (2,), device=x.device)
+        o1_real = paddle.zeros(o1_shape).to(device=x.device)
+        o1_imag = paddle.zeros(o1_shape).to(device=x.device)
+        o2 = paddle.zeros(x_real.shape + (2,)).to(device=x.device)
 
         total_modes = min(H, W) // 2 + 1
         kept_modes = int(total_modes * self.hard_thresholding_fraction)
 
         o1_re = (
-            torch.einsum(
+            paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 x_real[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
                 ],
                 self.w1[0],
             )
-            - torch.einsum(
+            - paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 x_imag[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
@@ -235,14 +235,14 @@ class ModAFNO2DLayer(AFNO2DLayer):
         )
 
         o1_im = (
-            torch.einsum(
+            paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 x_imag[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
                 ],
                 self.w1[0],
             )
-            + torch.einsum(
+            + paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 x_real[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
@@ -254,14 +254,14 @@ class ModAFNO2DLayer(AFNO2DLayer):
 
         # scale-shift operation
         (scale, shift) = self.scale_shift(mod_embed)
-        scale = scale.view(*scale_shift_shape)
-        shift = shift.view(*scale_shift_shape)
+        scale = scale.reshape([*scale_shift_shape])
+        shift = shift.reshape([*scale_shift_shape])
         if self.scale_shift_mode == "real":
             o1_re = o1_re * scale + shift
             o1_im = o1_im * scale + shift
         elif self.scale_shift_mode == "complex":
-            (scale_re, scale_im) = torch.chunk(scale, 2, dim=1)
-            (shift_re, shift_im) = torch.chunk(shift, 2, dim=1)
+            (scale_re, scale_im) = paddle.chunk(scale, 2, dim=1)
+            (shift_re, shift_im) = paddle.chunk(shift, 2, dim=1)
             (o1_re, o1_im) = (
                 o1_re * scale_re - o1_im * scale_im + shift_re,
                 o1_im * scale_re + o1_re * scale_im + shift_im,
@@ -278,14 +278,14 @@ class ModAFNO2DLayer(AFNO2DLayer):
         o2[
             :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes, ..., 0
         ] = (
-            torch.einsum(
+            paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 o1_real[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
                 ],
                 self.w2[0],
             )
-            - torch.einsum(
+            - paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 o1_imag[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
@@ -298,14 +298,14 @@ class ModAFNO2DLayer(AFNO2DLayer):
         o2[
             :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes, ..., 1
         ] = (
-            torch.einsum(
+            paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 o1_imag[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
                 ],
                 self.w2[0],
             )
-            + torch.einsum(
+            + paddle.einsum(
                 "nyxbi,bio->nyxbo",
                 o1_real[
                     :, total_modes - kept_modes : total_modes + kept_modes, :kept_modes
@@ -315,23 +315,23 @@ class ModAFNO2DLayer(AFNO2DLayer):
             + self.b2[1]
         )
 
-        x = F.softshrink(o2, lambd=self.sparsity_threshold)
-        x = fft.view_as_complex(x)
+        x = F.softshrink(o2, threshold=self.sparsity_threshold)
+        x = fft.as_complex(x)
         # TODO(akamenev): replace the following branching with
         # a one-liner, something like x.reshape(..., -1).squeeze(-1),
         # but this currently fails during ONNX export.
-        if torch.onnx.is_in_onnx_export():
-            x = x.reshape(B, H, W // 2 + 1, C, 2)
+        if False:
+            x = x.reshape([B, H, W // 2 + 1, C, 2])
         else:
-            x = x.reshape(B, H, W // 2 + 1, C)
+            x = x.reshape([B, H, W // 2 + 1, C])
         # Using ONNX friendly FFT functions
         x = fft.irfft2(x, s=(H, W), dim=(1, 2), norm="ortho")
-        x = x.type(dtype)
+        x = x.astype(dtype)
 
         return x + bias
 
 
-class Block(nn.Module):
+class Block(nn.Layer):
     """AFNO block, spectral convolution and MLP
 
     Parameters
@@ -346,9 +346,9 @@ class Block(nn.Module):
         Ratio of MLP latent variable size to input feature size, by default 4.0
     drop : float, optional
         Drop out rate in MLP, by default 0.0
-    activation_fn: nn.Module, optional
+    activation_fn: nn.Layer, optional
         Activation function used in MLP, by default nn.GELU
-    norm_layer : nn.Module, optional
+    norm_layer : nn.Layer, optional
         Normalization function, by default nn.LayerNorm
     double_skip : bool, optional
         Residual, by default True
@@ -372,8 +372,8 @@ class Block(nn.Module):
         num_blocks: int = 8,
         mlp_ratio: float = 4.0,
         drop: float = 0.0,
-        activation_fn: nn.Module = nn.GELU(),
-        norm_layer: nn.Module = nn.LayerNorm,
+        activation_fn: nn.Layer = nn.GELU(),
+        norm_layer: nn.Layer = nn.LayerNorm,
         double_skip: bool = True,
         sparsity_threshold: float = 0.01,
         hard_thresholding_fraction: float = 1.0,
@@ -499,7 +499,7 @@ class ModAFNO(Module):
 
     Example
     -------
-    >>> import torch
+    >>> import paddle
     >>> from modulus.models.afno import ModAFNO
     >>> model = ModAFNO(
     ...     inp_shape=[32, 32],
@@ -510,11 +510,11 @@ class ModAFNO(Module):
     ...     depth=2,
     ...     num_blocks=2,
     ... )
-    >>> input = torch.randn(32, 2, 32, 32) #(N, C, H, W)
-    >>> time = torch.full((32, 1), 0.5)
+    >>> input = paddle.randn(32, 2, 32, 32) #(N, C, H, W)
+    >>> time = paddle.full((32, 1), 0.5)
     >>> output = model(input, time)
     >>> output.size()
-    torch.Size([32, 1, 32, 32])
+    paddle.Size([32, 1, 32, 32])
 
     Note
     ----
@@ -573,13 +573,16 @@ class ModAFNO(Module):
         )
         num_patches = self.patch_embed.num_patches
 
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, embed_dim))
+        self.pos_embed = self.create_parameter(
+            shape=[1, num_patches, embed_dim],
+            default_initializer=nn.initializer.Constant(0.0),
+        )
         self.pos_drop = nn.Dropout(p=drop_rate)
 
         self.h = inp_shape[0] // self.patch_size[0]
         self.w = inp_shape[1] // self.patch_size[1]
 
-        self.blocks = nn.ModuleList(
+        self.blocks = nn.LayerList(
             [
                 Block(
                     embed_dim=embed_dim,
@@ -604,7 +607,7 @@ class ModAFNO(Module):
             bias=False,
         )
 
-        torch.nn.init.trunc_normal_(self.pos_embed, std=0.02)
+        paddle.nn.initializer.TruncatedNormal(std=0.02)(self.pos_embed)
         self.apply(self._init_weights)
 
         self.mod_additive_proj = nn.Linear(mod_dim, embed_dim)
@@ -614,10 +617,10 @@ class ModAFNO(Module):
             embed_model = {} if embed_model is None else embed_model
             self.mod_embed_net = ModEmbedNet(**embed_model)
 
-    def _init_weights(self, m: nn.Module):
+    def _init_weights(self, m: nn.Layer):
         """Init model weights"""
         if isinstance(m, nn.Linear):
-            torch.nn.init.trunc_normal_(m.weight, std=0.02)
+            paddle.nn.initializer.TruncatedNormal(std=0.02)(m.weight)
             if isinstance(m, nn.Linear) and m.bias is not None:
                 nn.init.constant_(m.bias, 0)
         elif isinstance(m, nn.LayerNorm):
@@ -648,9 +651,11 @@ class ModAFNO(Module):
 
         # Correct tensor shape back into [B, C, H, W]
         # [b h w (p1 p2 c_out)]
-        out = x.view(list(x.shape[:-1]) + [self.patch_size[0], self.patch_size[1], -1])
+        out = x.reshape(
+            [list(x.shape[:-1]) + [self.patch_size[0], self.patch_size[1], -1]]
+        )
         # [b h w p1 p2 c_out]
-        out = torch.permute(out, (0, 5, 1, 3, 2, 4))
+        out = paddle.transpose(out, (0, 5, 1, 3, 2, 4))
         # [b c_out, h, p1, w, p2]
         out = out.reshape(list(out.shape[:2]) + [self.inp_shape[0], self.inp_shape[1]])
         # [b c_out, (h*p1), (w*p2)]

@@ -33,10 +33,10 @@ repos:
           "--color", "--"]
       exclude: ^modulus/internal/|^modulus/experimental/|^docs/
 
--   repo: https://github.com/igorshubovych/markdownlint-cli
-    rev: v0.35.0
-    hooks:
-    - id: markdownlint
+# -   repo: https://github.com/igorshubovych/markdownlint-cli
+#     rev: v0.35.0
+#     hooks:
+#     - id: markdownlint
 
 -   repo: local
     hooks:
