@@ -17,7 +17,7 @@
 
 import numpy as np
 import nvtx
-import torch
+import paddle
 
 # ruff: noqa: E731
 
@@ -28,7 +28,7 @@ def ablation_sampler(
     latents,
     img_lr,
     class_labels=None,
-    randn_like=torch.randn_like,
+    randn_like=lambda x: paddle.randn(x.shape, x.dtype),
     num_steps=18,
     sigma_min=None,
     sigma_max=None,
@@ -109,7 +109,9 @@ def ablation_sampler(
     vp_beta_min = np.log(sigma_max**2 + 1) - 0.5 * vp_beta_d
 
     # Define time steps in terms of noise level.
-    step_indices = torch.arange(num_steps, dtype=torch.float64, device=latents.device)
+    step_indices = paddle.arange(num_steps, dtype=paddle.float64).to(
+        device=latents.device
+    )
     if discretization == "vp":
         orig_t_steps = 1 + step_indices / (num_steps - 1) * (epsilon_s - 1)
         sigma_steps = vp_sigma(vp_beta_d, vp_beta_min)(orig_t_steps)
@@ -119,17 +121,17 @@ def ablation_sampler(
         )
         sigma_steps = ve_sigma(orig_t_steps)
     elif discretization == "iddpm":
-        u = torch.zeros(M + 1, dtype=torch.float64, device=latents.device)
+        u = paddle.zeros(M + 1, dtype=paddle.float64).to(device=latents.device)
         alpha_bar = lambda j: (0.5 * np.pi * j / M / (C_2 + 1)).sin() ** 2
-        for j in torch.arange(M, 0, -1, device=latents.device):  # M, ..., 1
+        for j in paddle.arange(M, 0, -1).to(device=latents.device):  # M, ..., 1
             u[j - 1] = (
                 (u[j] ** 2 + 1) / (alpha_bar(j - 1) / alpha_bar(j)).clip(min=C_1) - 1
             ).sqrt()
-        u_filtered = u[torch.logical_and(u >= sigma_min, u <= sigma_max)]
+        u_filtered = u[paddle.logical_and(u >= sigma_min, u <= sigma_max)]
         sigma_steps = u_filtered[
             ((len(u_filtered) - 1) / (num_steps - 1) * step_indices)
             .round()
-            .to(torch.int64)
+            .astype("int64")
         ]
     else:
         sigma_steps = (
@@ -163,11 +165,11 @@ def ablation_sampler(
 
     # Compute final time steps based on the corresponding noise levels.
     t_steps = sigma_inv(net.round_sigma(sigma_steps))
-    t_steps = torch.cat([t_steps, torch.zeros_like(t_steps[:1])])  # t_N = 0
+    t_steps = paddle.concat([t_steps, paddle.zeros_like(t_steps[:1])])  # t_N = 0
 
     # Main sampling loop.
     t_next = t_steps[0]
-    x_next = latents.to(torch.float64) * (sigma(t_next) * s(t_next))
+    x_next = latents.to(paddle.float64) * (sigma(t_next) * s(t_next))
     for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])):  # 0, ..., N-1
         x_cur = x_next
 
@@ -185,7 +187,7 @@ def ablation_sampler(
         # Euler step.
         h = t_next - t_hat
         denoised = net(x_hat / s(t_hat), x_lr, sigma(t_hat), class_labels).to(
-            torch.float64
+            paddle.float64
         )
         d_cur = (
             sigma_deriv(t_hat) / sigma(t_hat) + s_deriv(t_hat) / s(t_hat)
@@ -198,7 +200,7 @@ def ablation_sampler(
             x_next = x_hat + h * d_cur
         else:
             denoised = net(x_prime / s(t_prime), x_lr, sigma(t_prime), class_labels).to(
-                torch.float64
+                paddle.float64
             )
             d_prime = (
                 sigma_deriv(t_prime) / sigma(t_prime) + s_deriv(t_prime) / s(t_prime)
