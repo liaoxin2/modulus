@@ -16,12 +16,13 @@
 
 # TODO(Dallas) Introduce Distributed Class for computation.
 
-import torch
+import numpy as np
+import paddle
 
 from modulus.metrics.general.entropy import entropy_from_counts
 from modulus.metrics.general.histogram import normal_cdf
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
 def efi_gaussian(
@@ -61,11 +62,11 @@ def efi_gaussian(
 
     return (
         2.0
-        / torch.pi
-        * torch.trapz(
-            (clim_cdf - pred_cdf) / torch.sqrt(1e-8 + clim_cdf * (1.0 - clim_cdf)),
+        / np.pi
+        * paddle.trapezoid(
+            (clim_cdf - pred_cdf) / paddle.sqrt(1e-8 + clim_cdf * (1.0 - clim_cdf)),
             clim_cdf,
-            dim=0,
+            axis=0,
         )
     )
 
@@ -91,16 +92,16 @@ def efi(bin_edges: Tensor, counts: Tensor, quantiles: Tensor) -> Tensor:
     See modulus/metrics/climate/efi for more details.
     """
     bin_widths = bin_edges[1:] - bin_edges[:-1]
-    pred_cdf = torch.cumsum(counts * bin_widths, dim=0) / torch.sum(
-        counts * bin_widths, dim=0
+    pred_cdf = paddle.cumsum(counts * bin_widths, axis=0) / paddle.sum(
+        counts * bin_widths, axis=0
     )
     return (
         2.0
-        / torch.pi
-        * torch.trapz(
-            (quantiles - pred_cdf) / torch.sqrt(1e-8 + quantiles * (1.0 - quantiles)),
+        / np.pi
+        * paddle.trapezoid(
+            (quantiles - pred_cdf) / paddle.sqrt(1e-8 + quantiles * (1.0 - quantiles)),
             quantiles,
-            dim=0,
+            axis=0,
         )
     )
 

@@ -15,11 +15,11 @@
 # limitations under the License.
 
 import numpy as np
-import torch
-from torch.nn import functional as F
+import paddle
+from paddle.nn import functional as F
 
 
-class MSE_SSIM(torch.nn.Module):
+class MSE_SSIM(paddle.nn.Module):
     """
     This class provides a compound loss formulation combining differential structural similarity (SSIM) and mean squared
     error (MSE). Calling this class will compute the loss using SSIM for fields indicated by model attributes
@@ -54,9 +54,9 @@ class MSE_SSIM(torch.nn.Module):
         else:
             self.ssim = SSIM(**ssim_params)
         if mse_params is None:
-            self.mse = torch.nn.MSELoss()
+            self.mse = paddle.nn.MSELoss()
         else:
-            self.mse = torch.nn.MSELoss(**mse_params)
+            self.mse = paddle.nn.MSELoss(**mse_params)
         if np.sum(weights) == 1:
             self.mse_dssim_weights = weights
         else:
@@ -64,21 +64,21 @@ class MSE_SSIM(torch.nn.Module):
         self.ssim_variables = ssim_variables
 
     def forward(
-        self, prediction: torch.tensor, targets: torch.tensor, model: torch.nn.Module
+        self, prediction: paddle.tensor, targets: paddle.tensor, model: paddle.nn.Module
     ):  # TODO(David): Pass only the necessary params instead of the entire model
         """
         Forward pass of the MSE_SSIM loss
 
-        param prediction: torch.Tensor
+        param prediction: paddle.Tensor
             Predicted image of shape [B, T, C, F, H, W]
-        param targets: torch.Tensor
+        param targets: paddle.Tensor
             Ground truth image of shape [B, T, C, F, H, W]
-        param model: torch.nn.Module
+        param model: paddle.nn.Module
             model over which loss is being computed
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The structural similarity loss
         """
 
@@ -102,11 +102,11 @@ class MSE_SSIM(torch.nn.Module):
             )
 
         # store the location of output and target tensors
-        device = prediction.device
+        device = prediction.place
         # initialize losses by var tensor that will store the variable wise loss
-        loss_by_var = torch.empty([prediction.shape[2]], device=device)
+        loss_by_var = paddle.empty([prediction.shape[2]]).to(device=device)
         # initialize weights tensor that will allow for a weighted average of MSE and SSIM
-        weights = torch.tensor(self.mse_dssim_weights, device=device)
+        weights = paddle.to_tensor(self.mse_dssim_weights).to(device=device)
         # calculate variable wise loss
         for i, v in enumerate(model.output_variables):
             var_mse = self.mse(
@@ -115,14 +115,16 @@ class MSE_SSIM(torch.nn.Module):
 
             if v in self.ssim_variables:
                 # compute weighted average between mse and dssim
-                var_dssim = torch.min(torch.tensor([1.0, float(var_mse)])) * (
+                var_dssim = paddle.min(paddle.tensor([1.0, float(var_mse)])) * (
                     1
                     - self.ssim(
                         prediction[:, :, i : i + 1, :, :, :],
                         targets[:, :, i : i + 1, :, :, :],
                     )
                 )
-                loss_by_var[i] = torch.sum(weights * torch.stack([var_mse, var_dssim]))
+                loss_by_var[i] = paddle.sum(
+                    weights * paddle.stack([var_mse, var_dssim])
+                )
             else:
                 loss_by_var[i] = var_mse
         loss = loss_by_var.mean()
@@ -130,7 +132,7 @@ class MSE_SSIM(torch.nn.Module):
         return loss
 
 
-class SSIM(torch.nn.Module):
+class SSIM(paddle.nn.Module):
     """
     This class provides a differential structural similarity (SSIM) as loss for training an artificial neural network. The
     advantage of SSIM over the conventional mean squared error is a relation to images where SSIM incorporates the local
@@ -159,7 +161,7 @@ class SSIM(torch.nn.Module):
             Boolean indicating whether time series forecasting is the task
         param padding_mode: str
             Padding mode used for padding input images, e.g. 'zeros', 'replicate', 'reflection'
-        param mse: torch.nn.Module
+        param mse: paddle.nn.Module
             Uses MSE parallel
         param mse_epochs: int, optional
             Number of MSE epochs preceding the SSIM epochs during training
@@ -168,7 +170,7 @@ class SSIM(torch.nn.Module):
         self.window_size = window_size
         self.time_series_forecasting = time_series_forecasting
         self.padding_mode = padding_mode
-        self.mse = torch.nn.MSELoss() if mse else None
+        self.mse = paddle.nn.MSELoss() if mse else None
         self.mse_epochs = mse_epochs
         self.c1, self.c2 = 0.01**2, 0.03**2
 
@@ -178,30 +180,30 @@ class SSIM(torch.nn.Module):
 
     def forward(
         self,
-        predicted: torch.Tensor,
-        target: torch.Tensor,
-        mask: torch.Tensor = None,
+        predicted: paddle.Tensor,
+        target: paddle.Tensor,
+        mask: paddle.Tensor = None,
         epoch: int = 0,
-    ) -> torch.Tensor:
+    ) -> paddle.Tensor:
         """
         Forward pass of the SSIM loss
 
-        param predicted: torch.Tensor
+        param predicted: paddle.Tensor
             Predicted image of shape
             [B, T, C, F, H, W] with time series forcasting
             [B, C, F, H, W] without time series forcasting
-        param target: torch.Tensor
+        param target: paddle.Tensor
             Ground truth image of shape
             [B, T, C, F, H, W] with time series forcasting
             [B, C, F, H, W] without time series forcasting
-        param mask: torch.Tensor, optional
+        param mask: paddle.Tensor, optional
             Mask for excluding pixels
         param epoch: int, optional
             The current epoch
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The structural similarity loss
         """
 
@@ -226,8 +228,8 @@ class SSIM(torch.nn.Module):
         target = target.transpose(dim0=2, dim1=3)
         if self.time_series_forecasting:
             # Join Batch and time dimension
-            predicted = torch.flatten(predicted, start_dim=0, end_dim=2)
-            target = torch.flatten(target, start_dim=0, end_dim=2)
+            predicted = paddle.flatten(predicted, start_dim=0, end_dim=2)
+            target = paddle.flatten(target, start_dim=0, end_dim=2)
 
         window = self.window.expand(predicted.shape[1], -1, -1, -1)
         window = window.to(dtype=predicted.dtype)
@@ -235,7 +237,7 @@ class SSIM(torch.nn.Module):
         return self._ssim(predicted, target, window, mask, epoch)
 
     @staticmethod
-    def _gaussian(window_size: int, sigma: float) -> torch.Tensor:
+    def _gaussian(window_size: int, sigma: float) -> paddle.Tensor:
         """
         Computes a Gaussian over the size of the window to weigh distant pixels less.
 
@@ -248,13 +250,13 @@ class SSIM(torch.nn.Module):
 
         Returns
         -------
-        torch.Tensor: A tensor representing the weights for each pixel in the window or patch
+        paddle.Tensor: A tensor representing the weights for each pixel in the window or patch
         """
-        x = torch.arange(0, window_size) - window_size // 2
-        gauss = torch.exp(-((x.div(2 * sigma)) ** 2))
+        x = paddle.arange(0, window_size) - window_size // 2
+        gauss = paddle.exp(-((x.div(2 * sigma)) ** 2))
         return gauss / gauss.sum()
 
-    def _create_window(self, window_size: int, sigma: float = 1.5) -> torch.Tensor:
+    def _create_window(self, window_size: int, sigma: float = 1.5) -> paddle.Tensor:
         """
         Creates the weights of the window or patches.
 
@@ -267,7 +269,7 @@ class SSIM(torch.nn.Module):
 
         Returns
         -------
-            torch.Tensor: The weights of the window
+            paddle.Tensor: The weights of the window
         """
         _1D_window = self._gaussian(window_size, sigma).unsqueeze(-1)
         _2D_window = _1D_window.mm(_1D_window.t()).unsqueeze(0).unsqueeze(0)
@@ -275,31 +277,31 @@ class SSIM(torch.nn.Module):
 
     def _ssim(
         self,
-        predicted: torch.Tensor,
-        target: torch.Tensor,
-        window: torch.Tensor,
-        mask: torch.Tensor = None,
+        predicted: paddle.Tensor,
+        target: paddle.Tensor,
+        window: paddle.Tensor,
+        mask: paddle.Tensor = None,
         epoch: int = 0,
-    ) -> torch.Tensor:
+    ) -> paddle.Tensor:
         """
         Computes the SSIM loss between two image tensors
 
         Parameters
         ----------
-        _predicted: torch.Tensor
+        _predicted: paddle.Tensor
             The predicted image tensor
-        _target: torch.Tensor
+        _target: paddle.Tensor
             The target image tensor
-        window: torch.Tensor
+        window: paddle.Tensor
             The weights for each pixel in the window over which the SSIM is computed
-        mask: torch.Tensor, optional default None
+        mask: paddle.Tensor, optional default None
             Mask for excluding pixels
         epoch: int, optional default 0
             The current epoch
 
         Returns
         -------
-        torch.Tensor The SSIM between predicted and target
+        paddle.Tensor The SSIM between predicted and target
         """
         if epoch < self.mse_epochs:
             # If specified, the MSE is used for the first self.mse_epochs epochs

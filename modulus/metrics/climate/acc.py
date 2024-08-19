@@ -16,11 +16,11 @@
 
 # TODO(Dallas) Introduce Distributed Class for computation.
 
-import torch
+import paddle
 
 from modulus.metrics.climate.reduction import _compute_lat_weights
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
 def acc(pred: Tensor, target: Tensor, climatology: Tensor, lat: Tensor) -> Tensor:
@@ -60,22 +60,22 @@ def acc(pred: Tensor, target: Tensor, climatology: Tensor, lat: Tensor) -> Tenso
     # Get aggregator
     lat_weight = _compute_lat_weights(lat)
     # Weighted mean
-    pred_bar = torch.sum(
-        lat_weight[:, None] * pred_hat, dim=(-2, -1), keepdim=True
-    ) / torch.sum(
-        lat_weight[:, None] * torch.ones_like(pred_hat), dim=(-2, -1), keepdim=True
+    pred_bar = paddle.sum(
+        lat_weight[:, None] * pred_hat, axis=(-2, -1), keepdim=True
+    ) / paddle.sum(
+        lat_weight[:, None] * paddle.ones_like(pred_hat), axis=(-2, -1), keepdim=True
     )
 
-    target_bar = torch.sum(
-        lat_weight[:, None] * target_hat, dim=(-2, -1), keepdim=True
-    ) / torch.sum(
-        lat_weight[:, None] * torch.ones_like(target_hat), dim=(-2, -1), keepdim=True
+    target_bar = paddle.sum(
+        lat_weight[:, None] * target_hat, axis=(-2, -1), keepdim=True
+    ) / paddle.sum(
+        lat_weight[:, None] * paddle.ones_like(target_hat), axis=(-2, -1), keepdim=True
     )
     pred_diff = pred_hat - pred_bar
     target_diff = target_hat - target_bar
 
-    p1 = torch.sum(lat_weight[:, None] * pred_diff * target_diff, dim=(-2, -1))
-    p2 = torch.sum(lat_weight[:, None] * pred_diff * pred_diff, dim=(-2, -1))
-    p3 = torch.sum(lat_weight[:, None] * target_diff * target_diff, dim=(-2, -1))
-    m = p1 / torch.sqrt(p2 * p3)
+    p1 = paddle.sum(lat_weight[:, None] * pred_diff * target_diff, axis=(-2, -1))
+    p2 = paddle.sum(lat_weight[:, None] * pred_diff * pred_diff, axis=(-2, -1))
+    p3 = paddle.sum(lat_weight[:, None] * target_diff * target_diff, axis=(-2, -1))
+    m = p1 / paddle.sqrt(p2 * p3)
     return m

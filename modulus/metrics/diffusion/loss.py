@@ -22,7 +22,7 @@ import random
 from typing import Callable, Optional, Union
 
 import numpy as np
-import torch
+import paddle
 
 
 class VPLoss:
@@ -55,9 +55,9 @@ class VPLoss:
 
     def __call__(
         self,
-        net: torch.nn.Module,
-        images: torch.Tensor,
-        labels: torch.Tensor,
+        net: paddle.nn.Layer,
+        images: paddle.Tensor,
+        labels: paddle.Tensor,
         augment_pipe: Optional[Callable] = None,
     ):
         """
@@ -72,13 +72,13 @@ class VPLoss:
 
         Parameters:
         ----------
-        net: torch.nn.Module
+        net: paddle.nn.Layer
             The neural network model that will make predictions.
 
-        images: torch.Tensor
+        images: paddle.Tensor
             Input images to the neural network.
 
-        labels: torch.Tensor
+        labels: paddle.Tensor
             Ground truth labels for the input images.
 
         augment_pipe: callable, optional
@@ -87,23 +87,23 @@ class VPLoss:
 
         Returns:
         -------
-        torch.Tensor
+        paddle.Tensor
             A tensor representing the loss calculated based on the network's
             predictions.
         """
-        rnd_uniform = torch.rand([images.shape[0], 1, 1, 1], device=images.device)
+        rnd_uniform = paddle.rand([images.shape[0], 1, 1, 1]).to(device=images.place)
         sigma = self.sigma(1 + rnd_uniform * (self.epsilon_t - 1))
         weight = 1 / sigma**2
         y, augment_labels = (
             augment_pipe(images) if augment_pipe is not None else (images, None)
         )
-        n = torch.randn_like(y) * sigma
+        n = paddle.randn(y.shape) * sigma
         D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
         loss = weight * ((D_yn - y) ** 2)
         return loss
 
     def sigma(
-        self, t: Union[float, torch.Tensor]
+        self, t: Union[float, paddle.Tensor]
     ):  # NOTE: also exists in preconditioning
         """
         Compute the sigma(t) value for a given t based on the VP formulation.
@@ -113,15 +113,15 @@ class VPLoss:
 
         Parameters
         ----------
-        t : Union[float, torch.Tensor]
+        t : Union[float, paddle.Tensor]
             The timestep or set of timesteps for which to compute sigma(t).
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The computed sigma(t) value(s).
         """
-        t = torch.as_tensor(t)
+        t = paddle.as_tensor(t)
         return ((0.5 * self.beta_d * (t**2) + self.beta_min * t).exp() - 1).sqrt()
 
 
@@ -160,13 +160,13 @@ class VELoss:
 
         Parameters:
         ----------
-        net: torch.nn.Module
+        net: paddle.nn.Layer
             The neural network model that will make predictions.
 
-        images: torch.Tensor
+        images: paddle.Tensor
             Input images to the neural network.
 
-        labels: torch.Tensor
+        labels: paddle.Tensor
             Ground truth labels for the input images.
 
         augment_pipe: callable, optional
@@ -175,17 +175,17 @@ class VELoss:
 
         Returns:
         -------
-        torch.Tensor
+        paddle.Tensor
             A tensor representing the loss calculated based on the network's
             predictions.
         """
-        rnd_uniform = torch.rand([images.shape[0], 1, 1, 1], device=images.device)
+        rnd_uniform = paddle.rand([images.shape[0], 1, 1, 1]).to(device=images.place)
         sigma = self.sigma_min * ((self.sigma_max / self.sigma_min) ** rnd_uniform)
         weight = 1 / sigma**2
         y, augment_labels = (
             augment_pipe(images) if augment_pipe is not None else (images, None)
         )
-        n = torch.randn_like(y) * sigma
+        n = paddle.randn(y.shape) * sigma
         D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
         loss = weight * ((D_yn - y) ** 2)
         return loss
@@ -230,13 +230,13 @@ class EDMLoss:
 
         Parameters:
         ----------
-        net: torch.nn.Module
+        net: paddle.nn.Layer
             The neural network model that will make predictions.
 
-        images: torch.Tensor
+        images: paddle.Tensor
             Input images to the neural network.
 
-        labels: torch.Tensor
+        labels: paddle.Tensor
             Ground truth labels for the input images.
 
         augment_pipe: callable, optional
@@ -245,17 +245,17 @@ class EDMLoss:
 
         Returns:
         -------
-        torch.Tensor
+        paddle.Tensor
             A tensor representing the loss calculated based on the network's
             predictions.
         """
-        rnd_normal = torch.randn([images.shape[0], 1, 1, 1], device=images.device)
+        rnd_normal = paddle.randn([images.shape[0], 1, 1, 1]).to(device=images.place)
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
         weight = (sigma**2 + self.sigma_data**2) / (sigma * self.sigma_data) ** 2
         y, augment_labels = (
             augment_pipe(images) if augment_pipe is not None else (images, None)
         )
-        n = torch.randn_like(y) * sigma
+        n = paddle.randn(y.shape) * sigma
         D_yn = net(y + n, sigma, labels, augment_labels=augment_labels)
         loss = weight * ((D_yn - y) ** 2)
         return loss
@@ -301,13 +301,13 @@ class EDMLossSR:
 
         Parameters:
         ----------
-        net: torch.nn.Module
+        net: paddle.nn.Layer
             The neural network model that will make predictions.
 
-        images: torch.Tensor
+        images: paddle.Tensor
             Input images to the neural network.
 
-        labels: torch.Tensor
+        labels: paddle.Tensor
             Ground truth labels for the input images.
 
         augment_pipe: callable, optional
@@ -316,23 +316,25 @@ class EDMLossSR:
 
         Returns:
         -------
-        torch.Tensor
+        paddle.Tensor
             A tensor representing the loss calculated based on the network's
             predictions.
         """
-        rnd_normal = torch.randn([img_clean.shape[0], 1, 1, 1], device=img_clean.device)
+        rnd_normal = paddle.randn([img_clean.shape[0], 1, 1, 1]).to(
+            device=img_clean.place
+        )
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
         weight = (sigma**2 + self.sigma_data**2) / (sigma * self.sigma_data) ** 2
 
         # augment for conditional generaiton
-        img_tot = torch.cat((img_clean, img_lr), dim=1)
+        img_tot = paddle.concat((img_clean, img_lr), axis=1)
         y_tot, augment_labels = (
             augment_pipe(img_tot) if augment_pipe is not None else (img_tot, None)
         )
         y = y_tot[:, : img_clean.shape[1], :, :]
         y_lr = y_tot[:, img_clean.shape[1] :, :, :]
 
-        n = torch.randn_like(y) * sigma
+        n = paddle.randn(y.shape) * sigma
         D_yn = net(y + n, y_lr, sigma, labels, augment_labels=augment_labels)
         loss = weight * ((D_yn - y) ** 2)
         return loss
@@ -372,16 +374,16 @@ class RegressionLoss:
 
         Parameters:
         ----------
-        net: torch.nn.Module
+        net: paddle.nn.Layer
             The neural network model that will make predictions.
 
-        img_clean: torch.Tensor
+        img_clean: paddle.Tensor
             Input images (high resolution) to the neural network.
 
-        img_lr: torch.Tensor
+        img_lr: paddle.Tensor
             Input images (low resolution) to the neural network.
 
-        labels: torch.Tensor
+        labels: paddle.Tensor
             Ground truth labels for the input images.
 
         augment_pipe: callable, optional
@@ -390,24 +392,26 @@ class RegressionLoss:
 
         Returns:
         -------
-        torch.Tensor
+        paddle.Tensor
             A tensor representing the loss calculated based on the network's
             predictions.
         """
-        rnd_normal = torch.randn([img_clean.shape[0], 1, 1, 1], device=img_clean.device)
+        rnd_normal = paddle.randn([img_clean.shape[0], 1, 1, 1]).to(
+            device=img_clean.place
+        )
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
         weight = (
             1.0  # (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
         )
 
-        img_tot = torch.cat((img_clean, img_lr), dim=1)
+        img_tot = paddle.concat((img_clean, img_lr), axis=1)
         y_tot, augment_labels = (
             augment_pipe(img_tot) if augment_pipe is not None else (img_tot, None)
         )
         y = y_tot[:, : img_clean.shape[1], :, :]
         y_lr = y_tot[:, img_clean.shape[1] :, :, :]
 
-        input = torch.zeros_like(y, device=img_clean.device)
+        input = paddle.zeros_like(y).to(device=img_clean.place)
         D_yn = net(input, y_lr, sigma, labels, augment_labels=augment_labels)
         loss = weight * ((D_yn - y) ** 2)
 
@@ -465,16 +469,16 @@ class ResLoss:
 
         Parameters:
         ----------
-        net: torch.nn.Module
+        net: paddle.nn.Layer
             The neural network model that will make predictions.
 
-        img_clean: torch.Tensor
+        img_clean: paddle.Tensor
             Input images (high resolution) to the neural network.
 
-        img_lr: torch.Tensor
+        img_lr: paddle.Tensor
             Input images (low resolution) to the neural network.
 
-        labels: torch.Tensor
+        labels: paddle.Tensor
             Ground truth labels for the input images.
 
         augment_pipe: callable, optional
@@ -483,17 +487,19 @@ class ResLoss:
 
         Returns:
         -------
-        torch.Tensor
+        paddle.Tensor
             A tensor representing the loss calculated based on the network's
             predictions.
         """
 
-        rnd_normal = torch.randn([img_clean.shape[0], 1, 1, 1], device=img_clean.device)
+        rnd_normal = paddle.randn([img_clean.shape[0], 1, 1, 1]).to(
+            device=img_clean.place
+        )
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
         weight = (sigma**2 + self.sigma_data**2) / (sigma * self.sigma_data) ** 2
 
         # augment for conditional generaiton
-        img_tot = torch.cat((img_clean, img_lr), dim=1)
+        img_tot = paddle.concat((img_clean, img_lr), axis=1)
         y_tot, augment_labels = (
             augment_pipe(img_tot) if augment_pipe is not None else (img_tot, None)
         )
@@ -503,15 +509,15 @@ class ResLoss:
 
         # global index
         b = y.shape[0]
-        Nx = torch.arange(self.img_shape_x).int()
-        Ny = torch.arange(self.img_shape_y).int()
-        grid = torch.stack(torch.meshgrid(Ny, Nx, indexing="ij"), dim=0)[
+        Nx = paddle.arange(self.img_shape_x).astype("int64")
+        Ny = paddle.arange(self.img_shape_y).astype("int64")
+        grid = paddle.stack(paddle.meshgrid(Ny, Nx, indexing="ij"), axis=0)[
             None,
         ].expand(b, -1, -1, -1)
 
         # form residual
         y_mean = self.unet(
-            torch.zeros_like(y, device=img_clean.device),
+            paddle.zeros_like(y, device=img_clean.place),
             y_lr_res,
             sigma,
             labels,
@@ -521,7 +527,7 @@ class ResLoss:
         y = y - y_mean
 
         if self.hr_mean_conditioning:
-            y_lr = torch.cat((y_mean, y_lr), dim=1).contiguous()
+            y_lr = paddle.concat((y_mean, y_lr), axis=1).contiguous()
         global_index = None
         # patchified training
         # conditioning: cat(y_mean, y_lr, input_interp, pos_embd), 4+12+100+4
@@ -531,8 +537,8 @@ class ResLoss:
         ):
             c_in = y_lr.shape[1]
             c_out = y.shape[1]
-            rnd_normal = torch.randn(
-                [img_clean.shape[0] * self.patch_num, 1, 1, 1], device=img_clean.device
+            rnd_normal = paddle.randn(
+                [img_clean.shape[0] * self.patch_num, 1, 1, 1], device=img_clean.place
             )
             sigma = (rnd_normal * self.P_std + self.P_mean).exp()
             weight = (sigma**2 + self.sigma_data**2) / (
@@ -540,34 +546,34 @@ class ResLoss:
             ) ** 2
 
             # global interpolation
-            input_interp = torch.nn.functional.interpolate(
+            input_interp = paddle.nn.functional.interpolate(
                 img_lr,
                 (self.patch_shape_y, self.patch_shape_x),
                 mode="bilinear",
             )
 
             # patch generation from a single sample (not from random samples due to memory consumption of regression)
-            y_new = torch.zeros(
+            y_new = paddle.zeros(
                 b * self.patch_num,
                 c_out,
                 self.patch_shape_y,
                 self.patch_shape_x,
-                device=img_clean.device,
+                device=img_clean.place,
             )
-            y_lr_new = torch.zeros(
+            y_lr_new = paddle.zeros(
                 b * self.patch_num,
                 c_in + input_interp.shape[1],
                 self.patch_shape_y,
                 self.patch_shape_x,
-                device=img_clean.device,
+                device=img_clean.place,
             )
-            global_index = torch.zeros(
+            global_index = paddle.zeros(
                 b * self.patch_num,
                 2,
                 self.patch_shape_y,
                 self.patch_shape_x,
-                dtype=torch.int,
-                device=img_clean.device,
+                dtype=paddle.int,
+                device=img_clean.place,
             )
             for i in range(self.patch_num):
                 rnd_x = random.randint(0, self.img_shape_x - self.patch_shape_x)
@@ -584,7 +590,7 @@ class ResLoss:
                     rnd_y : rnd_y + self.patch_shape_y,
                     rnd_x : rnd_x + self.patch_shape_x,
                 ]
-                y_lr_new[b * i : b * (i + 1),] = torch.cat(
+                y_lr_new[b * i : b * (i + 1),] = paddle.concat(
                     (
                         y_lr[
                             :,
@@ -598,7 +604,7 @@ class ResLoss:
                 )
             y = y_new
             y_lr = y_lr_new
-        latent = y + torch.randn_like(y) * sigma
+        latent = y + paddle.randn(y.shape) * sigma
         D_yn = net(
             latent,
             y_lr,
@@ -649,7 +655,7 @@ class VELoss_dfsr:
             beta_end=self.beta_end,
             num_diffusion_timesteps=self.num_diffusion_timesteps,
         )
-        self.betas = torch.from_numpy(betas).float()
+        self.betas = paddle.to_tensor(betas).astype("float32")
         self.num_timesteps = betas.shape[0]
 
     def get_beta_schedule(
@@ -717,13 +723,13 @@ class VELoss_dfsr:
 
         Parameters:
         ----------
-        net: torch.nn.Module
+        net: paddle.nn.Layer
             The neural network model that will make predictions.
 
-        images: torch.Tensor
+        images: paddle.Tensor
             Input fluid flow data samples to the neural network.
 
-        labels: torch.Tensor
+        labels: paddle.Tensor
             Ground truth labels for the input fluid flow data samples. Not required for dfsr.
 
         augment_pipe: callable, optional
@@ -732,17 +738,17 @@ class VELoss_dfsr:
 
         Returns:
         -------
-        torch.Tensor
+        paddle.Tensor
             A tensor representing the loss calculated based on the network's
             predictions.
         """
-        t = torch.randint(
-            low=0, high=self.num_timesteps, size=(images.size(0) // 2 + 1,)
-        ).to(images.device)
-        t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[: images.size(0)]
-        e = torch.randn_like(images)
-        b = self.betas.to(images.device)
-        a = (1 - b).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1)
+        t = paddle.randint(
+            low=0, high=self.num_timesteps, size=(images.shape[0] // 2 + 1,)
+        ).to(images.place)
+        t = paddle.concat([t, self.num_timesteps - t - 1], axis=0)[: images.shape[0]]
+        e = paddle.randn(images.shape)
+        b = self.betas.to(device=images.place)
+        a = (1 - b).cumprod(axis=0).index_select(0, t).view(-1, 1, 1, 1)
         x = images * a.sqrt() + e * (1.0 - a).sqrt()
 
         output = net(x, t, labels)

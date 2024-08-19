@@ -16,11 +16,11 @@
 
 from warnings import warn
 
-import torch
+import paddle
 
 from modulus.metrics.general import histogram
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
 def wasserstein_from_normal(
@@ -53,46 +53,46 @@ def wasserstein_from_normal(
     sigma_ndim = sigma0.ndim
     if sigma_ndim == mu_ndim:
         # Univariate normal distribution
-        return (mu0 - mu1) ** 2 + (sigma0 + sigma1 - 2 * torch.sqrt(sigma0 * sigma1))
+        return (mu0 - mu1) ** 2 + (sigma0 + sigma1 - 2 * paddle.sqrt(sigma0 * sigma1))
 
     else:
         # Multivariate normal distribution
         # Compute trace(sig0 + sig1 - 2*(sig0^1/2 * sig1 * sig0^1/2)^1/2) first
 
         # Compute sig0^1/2 first using eigen decomposition.
-        vals0, vecs0 = torch.linalg.eigh(sigma0)
-        if torch.any(vals0 < 0.0):
+        vals0, vecs0 = paddle.linalg.eigh(sigma0)
+        if paddle.any(vals0 < 0.0):
             warn(
                 "Warning! Some eigenvalues are less than zero and matrix is not positive definite."
             )
-            vals0 = torch.nn.functional.relu(vals0)
-        sqrt_sig0 = torch.matmul(
-            torch.matmul(vecs0, torch.diag_embed(torch.sqrt(vals0))),
+            vals0 = paddle.nn.functional.relu(vals0)
+        sqrt_sig0 = paddle.matmul(
+            paddle.matmul(vecs0, paddle.diag_embed(paddle.sqrt(vals0))),
             vecs0.transpose(-2, -1),
         )
 
         # Compute C = (sig0^1/2 * sig1 * sig0^1/2)
-        C = torch.matmul(torch.matmul(sqrt_sig0, sigma1), sqrt_sig0)
+        C = paddle.matmul(paddle.matmul(sqrt_sig0, sigma1), sqrt_sig0)
 
         # Compute Csqrt = sqrt( C )
-        vals0, vecs0 = torch.linalg.eigh(C)
-        if torch.any(vals0 < 0.0):
+        vals0, vecs0 = paddle.linalg.eigh(C)
+        if paddle.any(vals0 < 0.0):
             warn(
                 "Warning! Some eigenvalues are less than zero and matrix is not positive definite."
             )
-            vals0 = torch.nn.functional.relu(vals0)
-        sqrtC = torch.matmul(
-            torch.matmul(vecs0, torch.diag_embed(torch.sqrt(vals0))),
+            vals0 = paddle.nn.functional.relu(vals0)
+        sqrtC = paddle.matmul(
+            paddle.matmul(vecs0, paddle.diag_embed(paddle.sqrt(vals0))),
             vecs0.transpose(-2, -1),
         )
 
         # Compute T = tr(sig0 + sig1 - 2* sqrtC)
         if sigma_ndim > 2:
-            T = torch.vmap(torch.trace)(sigma0 + sigma1 - 2 * sqrtC)
+            T = paddle.vmap(paddle.trace)(sigma0 + sigma1 - 2 * sqrtC)
         else:
-            T = torch.trace(sigma0 + sigma1 - 2 * sqrtC)
+            T = paddle.trace(sigma0 + sigma1 - 2 * sqrtC)
 
-        return torch.norm((mu0 - mu1), p=2, dim=-1) ** 2 + T
+        return paddle.norm((mu0 - mu1), p=2, axis=-1) ** 2 + T
 
 
 def wasserstein_from_samples(x: Tensor, y: Tensor, bins: int = 10):
@@ -150,6 +150,6 @@ def wasserstein_from_cdf(bin_edges: Tensor, cdf_x: Tensor, cdf_y: Tensor) -> Ten
     Tensor
         The 1-Wasserstein distance between cdf_x and cdf_y
     """
-    return torch.sum(
-        torch.abs(cdf_x - cdf_y) * (bin_edges[1, ...] - bin_edges[0, ...]), dim=0
+    return paddle.sum(
+        paddle.abs(cdf_x - cdf_y) * (bin_edges[1, ...] - bin_edges[0, ...]), axis=0
     )

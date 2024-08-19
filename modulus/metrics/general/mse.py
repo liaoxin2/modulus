@@ -18,9 +18,9 @@
 
 from typing import Union
 
-import torch
+import paddle
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
 def mse(pred: Tensor, target: Tensor, dim: int = None) -> Union[Tensor, float]:
@@ -41,7 +41,7 @@ def mse(pred: Tensor, target: Tensor, dim: int = None) -> Union[Tensor, float]:
     Union[Tensor, float]
         Mean squared error value(s)
     """
-    return torch.mean((pred - target) ** 2, dim=dim)
+    return paddle.mean((pred - target) ** 2, axis=dim)
 
 
 def rmse(pred: Tensor, target: Tensor, dim: int = None) -> Union[Tensor, float]:
@@ -62,4 +62,4 @@ def rmse(pred: Tensor, target: Tensor, dim: int = None) -> Union[Tensor, float]:
     Union[Tensor, float]
         Root mean squared error value(s)
     """
-    return torch.sqrt(mse(pred, target, dim=dim))
+    return paddle.sqrt(mse(pred, target, axis=dim))

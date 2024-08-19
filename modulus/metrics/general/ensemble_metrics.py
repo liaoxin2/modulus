@@ -17,12 +17,12 @@
 from abc import ABC
 from typing import List, Tuple, Union
 
-import torch
-import torch.distributed as dist
+import paddle
+import paddle.distributed as dist
 
 from modulus.distributed.manager import DistributedManager
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
 class EnsembleMetrics(ABC):
@@ -34,21 +34,21 @@ class EnsembleMetrics(ABC):
     ----------
     input_shape : Union[Tuple[int,...], List]
         Shape of input tensors without batched dimension.
-    device : torch.device, optional
+    device : paddle.device, optional
         Pytorch device model is on, by default 'cpu'
-    dtype : torch.dtype, optional
+    dtype : paddle.dtype, optional
         Standard dtype to initialize any tensor with
     """
 
     def __init__(
         self,
         input_shape: Union[Tuple[int, ...], List[int]],
-        device: Union[str, torch.device] = "cpu",
-        dtype: torch.dtype = torch.float32,
+        device: Union[str, paddle.CUDAPlace] = "cpu",
+        dtype: paddle.dtype = paddle.float32,
     ):
         super().__init__()
         self.input_shape = list(input_shape)
-        self.device = torch.device(device)
+        self.device = device
         self.dtype = dtype
 
     def _check_shape(self, inputs: Tensor) -> None:
@@ -113,10 +113,10 @@ def _update_mean(
         Updated (rolling sum, number of samples)
     """
     if batch_dim is None:
-        inputs = torch.unsqueeze(inputs, 0)
+        inputs = paddle.unsqueeze(inputs, 0)
         batch_dim = 0
 
-    new_sum = old_sum + torch.sum(inputs, dim=batch_dim)
+    new_sum = old_sum + paddle.sum(inputs, axis=batch_dim)
     new_n = old_n + inputs.shape[batch_dim]
 
     return new_sum, new_n
@@ -135,8 +135,10 @@ class Mean(EnsembleMetrics):
 
     def __init__(self, input_shape: Union[Tuple, List], **kwargs):
         super().__init__(input_shape, **kwargs)
-        self.sum = torch.zeros(self.input_shape, dtype=self.dtype, device=self.device)
-        self.n = torch.zeros([1], dtype=torch.int32, device=self.device)
+        self.sum = paddle.zeros(self.input_shape, dtype=self.dtype).to(
+            device=self.device
+        )
+        self.n = paddle.zeros([1], dtype=paddle.int32).to(device=self.device)
 
     def __call__(self, inputs: Tensor, dim: int = 0) -> Tensor:
         """Calculate an initial mean
@@ -157,8 +159,8 @@ class Mean(EnsembleMetrics):
             raise AssertionError(
                 f"Input device, {inputs.device}, and Module device, {self.device}, must be the same."
             )
-        self.sum = torch.sum(inputs, dim=dim)
-        self.n = torch.as_tensor([inputs.shape[dim]], device=self.device)
+        self.sum = paddle.sum(inputs, axis=dim)
+        self.n = paddle.to_tensor([inputs.shape[dim]]).to(device=self.device)
         # TODO(Dallas) Move distributed calls into finalize.
 
         if (
@@ -195,8 +197,8 @@ class Mean(EnsembleMetrics):
             DistributedManager.is_initialized() and dist.is_initialized()
         ):  # pragma: no cover
             # Collect local sums, n
-            sums = torch.sum(inputs, dim=dim)
-            n = torch.as_tensor([inputs.shape[dim]], device=self.device)
+            sums = paddle.sum(inputs, axis=dim)
+            n = paddle.to_tensor([inputs.shape[dim]]).to(device=self.device)
 
             # Reduce
             dist.all_reduce(sums, op=dist.ReduceOp.SUM)
@@ -265,12 +267,12 @@ def _update_var(
     """
 
     if batch_dim is None:
-        inputs = torch.unsqueeze(inputs, 0)
+        inputs = paddle.unsqueeze(inputs, 0)
         batch_dim = 0
 
     temp_n = inputs.shape[batch_dim]
-    temp_sum = torch.sum(inputs, dim=batch_dim)
-    temp_sum2 = torch.sum((inputs - temp_sum / temp_n) ** 2, dim=batch_dim)
+    temp_sum = paddle.sum(inputs, axis=batch_dim)
+    temp_sum2 = paddle.sum((inputs - temp_sum / temp_n) ** 2, axis=batch_dim)
 
     delta = old_sum * temp_n / old_n - temp_sum
 
@@ -302,9 +304,13 @@ class Variance(EnsembleMetrics):
 
     def __init__(self, input_shape: Union[Tuple, List], **kwargs):
         super().__init__(input_shape, **kwargs)
-        self.n = torch.zeros([1], dtype=torch.int32, device=self.device)
-        self.sum = torch.zeros(self.input_shape, dtype=self.dtype, device=self.device)
-        self.sum2 = torch.zeros(self.input_shape, dtype=self.dtype, device=self.device)
+        self.n = paddle.zeros([1], dtype=paddle.int32).to(device=self.device)
+        self.sum = paddle.zeros(self.input_shape, dtype=self.dtype).to(
+            device=self.device
+        )
+        self.sum2 = paddle.zeros(self.input_shape, dtype=self.dtype).to(
+            device=self.device
+        )
 
     def __call__(self, inputs: Tensor, dim: int = 0) -> Tensor:
         """Calculate an initial variance
@@ -326,8 +332,8 @@ class Variance(EnsembleMetrics):
             raise AssertionError(
                 f"Input device, {inputs.device}, and Module device, {self.device}, must be the same."
             )
-        self.sum = torch.sum(inputs, dim=dim)
-        self.n = torch.as_tensor([inputs.shape[0]], device=self.device)
+        self.sum = paddle.sum(inputs, axis=dim)
+        self.n = paddle.to_tensor([inputs.shape[0]]).to(device=self.device)
 
         if (
             DistributedManager.is_initialized() and dist.is_initialized()
@@ -336,10 +342,10 @@ class Variance(EnsembleMetrics):
             dist.all_reduce(self.sum, op=dist.ReduceOp.SUM)
             dist.all_reduce(self.n, op=dist.ReduceOp.SUM)
 
-            self.sum2 = torch.sum((inputs - self.sum / self.n) ** 2, dim=dim)
+            self.sum2 = paddle.sum((inputs - self.sum / self.n) ** 2, axis=dim)
             dist.all_reduce(self.sum2, op=dist.ReduceOp.SUM)
         else:
-            self.sum2 = torch.sum((inputs - self.sum / self.n) ** 2, dim=dim)
+            self.sum2 = paddle.sum((inputs - self.sum / self.n) ** 2, axis=dim)
 
         if self.n < 2.0:
             return self.sum2
@@ -366,20 +372,20 @@ class Variance(EnsembleMetrics):
                 f"Input device, {inputs.device}, and Module device, {self.device}, must be the same."
             )
 
-        new_n = torch.as_tensor([inputs.shape[0]], device=self.device)
-        new_sum = torch.sum(inputs, dim=0)
+        new_n = paddle.to_tensor([inputs.shape[0]]).to(device=self.device)
+        new_sum = paddle.sum(inputs, axis=0)
         # TODO(Dallas) Move distributed calls into finalize.
         if (
             DistributedManager.is_initialized() and dist.is_initialized()
         ):  # pragma: no cover
             dist.all_reduce(new_n, op=dist.ReduceOp.SUM)
             dist.all_reduce(new_sum, op=dist.ReduceOp.SUM)
-            new_sum2 = torch.sum((inputs - new_sum / new_n) ** 2, dim=0)
+            new_sum2 = paddle.sum((inputs - new_sum / new_n) ** 2, axis=0)
             dist.all_reduce(new_sum2, op=dist.ReduceOp.SUM)
 
         else:
             # Calculate new statistics
-            new_sum2 = torch.sum((inputs - new_sum / new_n) ** 2, dim=0)
+            new_sum2 = paddle.sum((inputs - new_sum / new_n) ** 2, axis=0)
 
         delta = self.sum * new_n / self.n - new_sum
         # Update
@@ -416,7 +422,7 @@ class Variance(EnsembleMetrics):
             )
         self.var = self.sum2 / (self.n - 1.0)
         if std:
-            self.std = torch.sqrt(self.var)
+            self.std = paddle.sqrt(self.var)
             return self.std
         else:
             return self.var

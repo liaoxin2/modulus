@@ -17,17 +17,17 @@
 
 from typing import Tuple, Union
 
-import torch
-import torch.distributed as dist
+import paddle
+import paddle.distributed as dist
 
 from modulus.distributed.manager import DistributedManager
 
 from .ensemble_metrics import EnsembleMetrics
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
-@torch.jit.script
+# @paddle.jit.script
 def linspace(start: Tensor, stop: Tensor, num: int) -> Tensor:  # pragma: no cover
     """Element-wise multi-dimensional linspace
 
@@ -49,7 +49,7 @@ def linspace(start: Tensor, stop: Tensor, num: int) -> Tensor:  # pragma: no cov
         Tensor of evenly spaced numbers over defined interval [num, *start.shape]
     """
     # create a tensor of 'num' steps from 0 to 1
-    steps = torch.arange(num + 1, dtype=torch.float32, device=start.device) / (num)
+    steps = paddle.arange(num + 1, dtype=paddle.float32).to(device=start.place) / (num)
 
     # reshape the 'steps' tensor to [-1, *([1]*start.ndim)] to allow for broadcastings
     # - using 'steps.reshape([-1, *([1]*start.ndim)])' would be nice here but
@@ -64,7 +64,7 @@ def linspace(start: Tensor, stop: Tensor, num: int) -> Tensor:  # pragma: no cov
     return out
 
 
-@torch.jit.script
+@paddle.jit.script
 def _low_memory_bin_reduction_counts(
     inputs: Tensor, bin_edges: Tensor, counts: Tensor, number_of_bins: int
 ):  # pragma: no cover
@@ -93,22 +93,22 @@ def _low_memory_bin_reduction_counts(
         PDF bin count tensor [N, ...]
     """
     for j in range(inputs.shape[0]):
-        counts[0] += (inputs[j] < bin_edges[1]).int()
+        counts[0] += (inputs[j] < bin_edges[1]).astype("int64")
     for i in range(1, number_of_bins - 1):
         for j in range(inputs.shape[0]):
-            counts[i] += (inputs[j] < bin_edges[i + 1]).int() - (
+            counts[i] += (inputs[j] < bin_edges[i + 1]).astype("int64") - (
                 inputs[j] < bin_edges[i]
-            ).int()
+            ).astype("int64")
 
     for j in range(inputs.shape[0]):
-        counts[number_of_bins - 1] += (
-            1 - (inputs[j] < bin_edges[number_of_bins - 1]).int()
-        )
+        counts[number_of_bins - 1] += 1 - (
+            inputs[j] < bin_edges[number_of_bins - 1]
+        ).astype("int64")
 
     return counts
 
 
-@torch.jit.script
+@paddle.jit.script
 def _high_memory_bin_reduction_counts(
     inputs: Tensor, bin_edges: Tensor, counts: Tensor, number_of_bins: int
 ) -> Tensor:  # pragma: no cover
@@ -135,18 +135,18 @@ def _high_memory_bin_reduction_counts(
     Tensor
         PDF bin count tensor [N, ...]
     """
-    counts[0] += torch.count_nonzero(inputs < bin_edges[1], dim=0)
+    counts[0] += paddle.count_nonzero(inputs < bin_edges[1], axis=0)
     for i in range(1, number_of_bins - 1):
-        counts[i] += torch.count_nonzero(
-            inputs < bin_edges[i + 1], dim=0
-        ) - torch.count_nonzero(inputs < bin_edges[i], dim=0)
-    counts[number_of_bins - 1] += inputs.shape[0] - torch.count_nonzero(
-        inputs < bin_edges[number_of_bins - 1], dim=0
+        counts[i] += paddle.count_nonzero(
+            inputs < bin_edges[i + 1], axis=0
+        ) - paddle.count_nonzero(inputs < bin_edges[i], axis=0)
+    counts[number_of_bins - 1] += inputs.shape[0] - paddle.count_nonzero(
+        inputs < bin_edges[number_of_bins - 1], axis=0
     )
     return counts
 
 
-@torch.jit.script
+@paddle.jit.script
 def _low_memory_bin_reduction_cdf(
     inputs: Tensor, bin_edges: Tensor, counts: Tensor, number_of_bins: int
 ) -> Tensor:  # pragma: no cover
@@ -175,16 +175,16 @@ def _low_memory_bin_reduction_cdf(
     """
     for i in range(number_of_bins - 1):
         for j in range(inputs.shape[0]):
-            counts[i] += (inputs[j] < bin_edges[i + 1]).int()
+            counts[i] += (inputs[j] < bin_edges[i + 1]).astype("int64")
     counts[number_of_bins - 1] += inputs.shape[0]
     return counts
 
 
-@torch.jit.script
+@paddle.jit.script
 def _high_memory_bin_reduction_cdf(
-    inputs: torch.Tensor,
-    bin_edges: torch.Tensor,
-    counts: torch.Tensor,
+    inputs: paddle.Tensor,
+    bin_edges: paddle.Tensor,
+    counts: paddle.Tensor,
     number_of_bins: int,
 ) -> Tensor:  # pragma: no cover
     """Computes high-memory cumulative bin counts
@@ -196,12 +196,12 @@ def _high_memory_bin_reduction_cdf(
 
     Parameters
     ----------
-    inputs : torch.Tensor
+    inputs : paddle.Tensor
         Inputs to be binned, has dimension [B, ...] where B is the batch dimension that
         the binning is done over.
-    bin_edges : torch.Tensor
+    bin_edges : paddle.Tensor
         Bin edges with dimension [N+1, ...] where N is the number of bins
-    counts : torch.Tensor
+    counts : paddle.Tensor
         Existing bin count tensor with dimension [N, ...] where N is the number of bins
     number_of_bins : int
         Number of bins
@@ -212,15 +212,15 @@ def _high_memory_bin_reduction_cdf(
         CDF bin count tensor [N, ...]
     """
     for i in range(number_of_bins - 1):
-        counts[i] += torch.count_nonzero(inputs < bin_edges[i + 1], dim=0)
+        counts[i] += paddle.count_nonzero(inputs < bin_edges[i + 1], axis=0)
     counts[number_of_bins - 1] = inputs.shape[0]
     return counts
 
 
 def _count_bins(
-    input: torch.Tensor,
-    bin_edges: torch.Tensor,
-    counts: Union[torch.Tensor, None] = None,
+    input: paddle.Tensor,
+    bin_edges: paddle.Tensor,
+    counts: Union[paddle.Tensor, None] = None,
     cdf: bool = False,
 ) -> Tensor:
     """Computes (un)Cumulative bin counts of input tensor
@@ -236,7 +236,7 @@ def _count_bins(
         the binning is done over
     bin_edges : Tensor
         Bin edges with dimension [N+1, ...] where N is the number of bins
-    counts : Union[torch.Tensor, None]
+    counts : Union[paddle.Tensor, None]
         Existing bin count tensor with dimension [N, ...] where N is the number of bins.
         If no counts is passed then we construct an empty counts, by default None
     cdf : bool, optional
@@ -255,8 +255,8 @@ def _count_bins(
         )
 
     if counts is None:
-        counts = torch.zeros(
-            (number_of_bins, *bins_shape[1:]), dtype=torch.int64, device=input.device
+        counts = paddle.zeros(
+            (number_of_bins, *bins_shape[1:]), dtype=paddle.int64, device=input.place
         )
     else:
         if bins_shape[1:] != counts.shape[1:]:
@@ -313,16 +313,16 @@ def _get_mins_maxs(*inputs: Tensor, axis: int = 0) -> Tuple[Tensor, Tensor]:
             raise ValueError()
 
     # Compute low and high for input
-    low = torch.min(input, axis=axis)[0]
-    high = torch.max(input, axis=axis)[0]
+    low = paddle.min(input, axis=axis)[0]
+    high = paddle.max(input, axis=axis)[0]
 
     # Iterative over any and all args, storing the latest inf/sup.
     for x in inputs:
-        low0 = torch.min(x, axis=axis)[0]
-        high0 = torch.max(x, axis=axis)[0]
+        low0 = paddle.min(x, axis=axis)[0]
+        high0 = paddle.max(x, axis=axis)[0]
 
-        low = torch.where(low < low0, low, low0)
-        high = torch.where(high > high0, high, high0)
+        low = paddle.where(low < low0, low, low0)
+        high = paddle.where(high > high0, high, high0)
 
     return low, high
 
@@ -366,11 +366,11 @@ def _update_bins_counts(
         dist.all_reduce(low, op=dist.ReduceOp.MIN)
         dist.all_reduce(high, op=dist.ReduceOp.MAX)
 
-    low = torch.where(low < bin_edges[0], low, bin_edges[0])
-    high = torch.where(high > bin_edges[-1], high, bin_edges[-1])
+    low = paddle.where(low < bin_edges[0], low, bin_edges[0])
+    high = paddle.where(high > bin_edges[-1], high, bin_edges[-1])
 
     # Test if bin_edges is a superset and do not recompute bin_edges.
-    if ~(torch.all(low == bin_edges[0]) & torch.all(high == bin_edges[-1])):
+    if ~(paddle.all(low == bin_edges[0]) & paddle.all(high == bin_edges[-1])):
         # There are extrema in inputs/args that are outside of bin_edges and we must recompute bin_edges and counts.
 
         ## Need to make sure that the new bin_edges are consistent with the old bin_edges.
@@ -383,19 +383,27 @@ def _update_bins_counts(
         old_number_of_bins = bin_edges.shape[0] - 1
         number_of_bins = old_number_of_bins
 
-        lk = torch.max(torch.ceil((bin_edges[0] - low) / dbin_edges)).int().item()
+        lk = (
+            paddle.max(paddle.ceil((bin_edges[0] - low) / dbin_edges))
+            .astype("int64")
+            .item()
+        )
         start = bin_edges[0] - lk * dbin_edges
         number_of_bins += lk
 
-        uk = torch.max(torch.ceil((high - bin_edges[-1]) / dbin_edges)).int().item()
+        uk = (
+            paddle.max(paddle.ceil((high - bin_edges[-1]) / dbin_edges))
+            .astype("int64")
+            .item()
+        )
         end = bin_edges[-1] + uk * dbin_edges
         number_of_bins += uk
 
         bin_edges = linspace(start, end, number_of_bins)
-        new_counts = torch.zeros(
+        new_counts = paddle.zeros(
             (number_of_bins, *bin_edges.shape[1:]),
-            dtype=torch.int64,
-            device=bin_edges.device,
+            dtype=paddle.int64,
+            device=bin_edges.place,
         )
 
         new_counts[lk : lk + old_number_of_bins] += counts
@@ -467,7 +475,7 @@ def _compute_counts_cdf(
             counts = _count_bins(input, bin_edges, counts=counts, cdf=cdf)
         return bin_edges, counts
 
-    elif isinstance(bins, torch.Tensor):
+    elif isinstance(bins, paddle.Tensor):
         bin_edges = bins
         if verbose:
             print("Bins is passed as a tensor")
@@ -479,11 +487,11 @@ def _compute_counts_cdf(
             # Get largest bin edges needed from input/args
             low, high = _get_mins_maxs(*inputs)
             # Compare against existing bin_edges
-            low = torch.where(low < bin_edges[0], low, bin_edges[0])
-            high = torch.where(high > bin_edges[-1], high, bin_edges[-1])
+            low = paddle.where(low < bin_edges[0], low, bin_edges[0])
+            high = paddle.where(high > bin_edges[-1], high, bin_edges[-1])
 
             # Update, if necessary
-            if torch.any(low != bin_edges[0]) | torch.any(high != bin_edges[-1]):
+            if paddle.any(low != bin_edges[0]) | paddle.any(high != bin_edges[-1]):
                 bin_edges = linspace(low, high, number_of_bins)
 
             # Bin inputs
@@ -617,13 +625,13 @@ class Histogram(EnsembleMetrics):
         self.counts_shape[0] = self.number_of_bins
         self.tol = tol
         # Initialize bins
-        start = -1.0 * torch.ones(
-            self.input_shape[1:], device=self.device, dtype=self.dtype
+        start = -1.0 * paddle.ones(
+            self.input_shape[1:], device=self.place, dtype=self.dtype
         )
-        end = torch.ones(self.input_shape[1:], device=self.device, dtype=self.dtype)
+        end = paddle.ones(self.input_shape[1:], device=self.place, dtype=self.dtype)
         self.bin_edges = linspace(start, end, self.number_of_bins)
-        self.counts = torch.zeros(
-            self.counts_shape, device=self.device, dtype=torch.int64
+        self.counts = paddle.zeros(
+            self.counts_shape, device=self.place, dtype=paddle.int64
         )
 
     def __call__(self, input: Tensor) -> Tuple[Tensor, Tensor]:
@@ -641,8 +649,8 @@ class Histogram(EnsembleMetrics):
         """
         # Build bin_edges
         if DistributedManager.is_initialized() and dist.is_initialized():
-            start, _ = torch.min(input, axis=0)
-            end, _ = torch.max(input, axis=0)
+            start, _ = paddle.min(input, axis=0)
+            end, _ = paddle.max(input, axis=0)
             # We assume that the start/end across the distributed environments
             # need to be combined.
             dist.all_reduce(start, op=dist.ReduceOp.MIN)
@@ -692,10 +700,10 @@ class Histogram(EnsembleMetrics):
             The calculated (bin edges [N+1, ...], PDF or CDF [N, ...]) tensors
         """
         # Normalize counts
-        hist_norm = self.counts.sum(dim=0)
+        hist_norm = self.counts.sum(axis=0)
         self.pdf = self.counts / hist_norm
         if cdf:
-            self.cdf = torch.cumsum(self.pdf, dim=0)
+            self.cdf = paddle.cumsum(self.pdf, axis=0)
             return self.bin_edges, self.cdf
         else:
             return self.bin_edges, self.pdf
@@ -744,9 +752,9 @@ def normal_pdf(
             "This type of grid is not defined. Choose one of {'mids', 'right', 'left'}."
         )
     return (
-        torch.exp(-0.5 * ((bin_mids - mean[None, ...]) / std[None, ...]) ** 2)
+        paddle.exp(-0.5 * ((bin_mids - mean[None, ...]) / std[None, ...]) ** 2)
         / std[None, ...]
-        / torch.sqrt(torch.as_tensor(2.0 * torch.pi))
+        / paddle.sqrt(paddle.as_tensor(2.0 * paddle.pi))
     )
 
 
@@ -795,7 +803,7 @@ def normal_cdf(
         raise ValueError(
             "This type of grid is not defined. Choose one of {'mids', 'right', 'left'}."
         )
-    return 0.5 + 0.5 * torch.erf(
+    return 0.5 + 0.5 * paddle.erf(
         (bin_mids - mean[None, ...])
-        / (torch.sqrt(torch.as_tensor([2.0], device=mean.device)) * std[None, ...])
+        / (paddle.sqrt(paddle.as_tensor([2.0], device=mean.place)) * std[None, ...])
     )

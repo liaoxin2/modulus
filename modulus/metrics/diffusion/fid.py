@@ -14,14 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
+import paddle
 
 from modulus.metrics.general.wasserstein import wasserstein_from_normal
 
 
 def calculate_fid_from_inception_stats(
-    mu: torch.Tensor, sigma: torch.Tensor, mu_ref: torch.Tensor, sigma_ref: torch.Tensor
-) -> torch.Tensor:
+    mu: paddle.Tensor,
+    sigma: paddle.Tensor,
+    mu_ref: paddle.Tensor,
+    sigma_ref: paddle.Tensor,
+) -> paddle.Tensor:
     """
     Calculate the Fréchet Inception Distance (FID) between two sets
     of Inception statistics.
@@ -32,13 +35,13 @@ def calculate_fid_from_inception_stats(
 
     Parameters
     ----------
-    mu:  torch.Tensor:
+    mu:  paddle.Tensor:
         Mean of Inception statistics for the generated dataset.
-    sigma: torch.Tensor:
+    sigma: paddle.Tensor:
         Covariance matrix of Inception statistics for the generated dataset.
-    mu_ref: torch.Tensor
+    mu_ref: paddle.Tensor
         Mean of Inception statistics for the reference dataset.
-    sigma_ref: torch.Tensor
+    sigma_ref: paddle.Tensor
         Covariance matrix of Inception statistics for the reference dataset.
 
     Returns

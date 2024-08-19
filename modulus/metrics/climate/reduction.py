@@ -14,8 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-from torch import Tensor
+import paddle
+from paddle import Tensor
 
 from modulus.metrics.general.reduction import WeightedMean, WeightedVariance
 
@@ -35,7 +35,7 @@ def _compute_lat_weights(lat: Tensor) -> Tensor:
         Latitude weight tensor [H]
     """
 
-    lat_weight = torch.abs(torch.cos(torch.pi * (lat / 180.0)))
+    lat_weight = paddle.abs(paddle.cos(paddle.pi * (lat / 180.0)))
 
     lat_weight = lat_weight / lat_weight.sum()
     return lat_weight
@@ -98,7 +98,7 @@ def zonal_var(
     ws = WeightedVariance(weights)
     var = ws(x, dim=dim, keepdims=keepdims)
     if std:
-        return torch.sqrt(var)
+        return paddle.sqrt(var)
     else:
         return var
 
@@ -133,7 +133,7 @@ def global_mean(x: Tensor, lat: Tensor, keepdims: bool = False) -> Tensor:
     lat_reduced = zonal_mean(x, lat, dim=-2, keepdims=keepdims)
 
     # Return after reduction across longitudes
-    return torch.mean(lat_reduced, dim=-1, keepdims=keepdims)
+    return paddle.mean(lat_reduced, axis=-1, keepdim=keepdims)
 
 
 def global_var(
@@ -176,9 +176,9 @@ def global_var(
     lat_reduced = zonal_mean((x - gm) ** 2, lat, dim=-2, keepdims=keepdims)
 
     # Take var over longitude
-    long_reduce = torch.mean(lat_reduced, dim=-1, keepdims=keepdims)
+    long_reduce = paddle.mean(lat_reduced, axis=-1, keepdim=keepdims)
 
     if std:
-        return torch.sqrt(long_reduce)
+        return paddle.sqrt(long_reduce)
     else:
         return long_reduce

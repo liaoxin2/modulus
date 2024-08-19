@@ -16,9 +16,9 @@
 
 # TODO(Dallas) Introduce Distributed Class for computation.
 
-import torch
+import paddle
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
 def entropy_from_counts(p: Tensor, bin_edges: Tensor, normalized=True) -> Tensor:
@@ -68,12 +68,12 @@ def entropy_from_counts(p: Tensor, bin_edges: Tensor, normalized=True) -> Tensor
         )
     dbins = bin_edges[1:] - bin_edges[:-1]
     bin_mids = 0.5 * (bin_edges[1:] + bin_edges[:-1])
-    p = p / torch.trapz(p, bin_mids, dim=0) + 1e-8
+    p = p / paddle.trapezoid(p, bin_mids, axis=0) + 1e-8
 
-    ent = torch.trapz(-1.0 * p * torch.log(p), bin_mids, dim=0)
+    ent = paddle.trapezoid(-1.0 * p * paddle.log(p), bin_mids, axis=0)
     if normalized:
-        max_ent = torch.log(bin_edges[-1] - bin_edges[0])
-        min_ent = 0.5 + 0.5 * torch.log(2 * torch.pi * dbins[0] ** 2)
+        max_ent = paddle.log(bin_edges[-1] - bin_edges[0])
+        min_ent = 0.5 + 0.5 * paddle.log(2 * paddle.pi * dbins[0] ** 2)
         return (ent - min_ent) / (max_ent - min_ent)
     else:
         return ent
@@ -137,7 +137,7 @@ def relative_entropy_from_counts(
             + "."
         )
     bin_mids = 0.5 * (bin_edges[1:] + bin_edges[:-1])
-    p = p / torch.trapz(p, bin_mids, dim=0) + 1e-8
-    q = q / torch.trapz(q, bin_mids, dim=0) + 1e-8
+    p = p / paddle.trapezoid(p, bin_mids, axis=0) + 1e-8
+    q = q / paddle.trapezoid(q, bin_mids, axis=0) + 1e-8
 
-    return torch.trapz(p * torch.log(p / q), bin_mids, dim=0)
+    return paddle.trapezoid(p * paddle.log(p / q), bin_mids, axis=0)

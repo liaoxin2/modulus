@@ -17,11 +17,11 @@
 from typing import Union
 
 import numpy as np
-import torch
+import paddle
 
 from modulus.metrics.general.histogram import histogram, linspace
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
 def find_rank(
@@ -48,7 +48,7 @@ def find_rank(
         Tensor of rank for eac of the batched dimensions [...]
     """
     if isinstance(obs, np.ndarray):
-        obs = torch.from_numpy(obs).to(counts.device)
+        obs = paddle.to_tensor(obs).to(device=counts.device)
     if bin_edges.shape[1:] != counts.shape[1:]:
         raise ValueError(
             "Expected bins and counts to have compatible non-zeroth dimensions but have shapes"
@@ -73,10 +73,10 @@ def find_rank(
             + str(counts.shape[0])
             + "+1."
         )
-    n = torch.sum(counts, dim=0)[0]
+    n = paddle.sum(counts, axis=0)[0]
     bin_mids = 0.5 * (bin_edges[1:] + bin_edges[:-1])
 
-    right = torch.sum(counts * (bin_mids <= obs[None, ...]), dim=0)
+    right = paddle.sum(counts * (bin_mids <= obs[None, ...]), axis=0)
 
     return right / n
 
@@ -109,10 +109,10 @@ def _rank_probability_score_from_counts(
     Tensor
         Tensor of the Ranked Probability Score for each batched dimension of the input.
     """
-    cdf = torch.cumsum(rank_counts, dim=0)
+    cdf = paddle.cumsum(rank_counts, axis=0)
     cdf = cdf / cdf[-1]
-    normalization = torch.sum((1.0 - rank_bin_edges[1:]) ** 2, dim=0)
-    return torch.sum((cdf - rank_bin_edges[1:]) ** 2, dim=0) / normalization
+    normalization = paddle.sum((1.0 - rank_bin_edges[1:]) ** 2, axis=0)
+    return paddle.sum((cdf - rank_bin_edges[1:]) ** 2, axis=0) / normalization
 
 
 def rank_probability_score(ranks: Tensor) -> Tensor:

@@ -16,8 +16,8 @@
 
 from abc import ABC
 
-import torch
-from torch import Tensor
+import paddle
+from paddle import Tensor
 
 
 class WeightedStatistic(ABC):
@@ -30,7 +30,7 @@ class WeightedStatistic(ABC):
     """
 
     def __init__(self, weights: Tensor):
-        if not torch.all(weights > 0.0).item():
+        if not paddle.all(weights > 0.0).item():
             raise ValueError("Expected all weights to be positive.")
         self.weights = self._normalize(weights)
 
@@ -75,7 +75,7 @@ class WeightedStatistic(ABC):
         Tensor
             Normalized weights
         """
-        return weights / torch.sum(weights)
+        return weights / paddle.sum(weights)
 
 
 class WeightedMean(WeightedStatistic):
@@ -109,7 +109,7 @@ class WeightedMean(WeightedStatistic):
             Weighted mean
         """
         w = super().__call__(x, dim)
-        return torch.sum(x * w, dim=dim, keepdims=keepdims)
+        return paddle.sum(x * w, axis=dim, keepdim=keepdims)
 
 
 class WeightedVariance(WeightedStatistic):
@@ -149,6 +149,6 @@ class WeightedVariance(WeightedStatistic):
         wm = self.wm(x, dim, keepdims=True)
 
         # Computing scaling for standard deviation
-        number_of_non_zero_weights = torch.sum(w > 0.0)
+        number_of_non_zero_weights = paddle.sum(w > 0.0)
         scale = (number_of_non_zero_weights - 1.0) / number_of_non_zero_weights
-        return torch.sum(w * (x - wm) ** 2, dim=dim, keepdims=keepdims) / scale
+        return paddle.sum(w * (x - wm) ** 2, axis=dim, keepdim=keepdims) / scale

@@ -16,12 +16,12 @@
 
 from typing import Sequence
 
-import torch as th
+import paddle as pd
 
 """
 Custom dlwp compatible loss classes that allow for more sophisticated training optimization.
 
-Each custom loss should inherit all methods of th.nn._Loss base class or subclasses thereof. 
+Each custom loss should inherit all methods of pd.nn._Loss base class or subclasses thereof. 
 Additionally, custom loss classes should define a setup function which receives the trainer object. 
 The setup function should be used to move tensors to appropriate gpus and finalize configuration
 of the loss calculation using information about the model (trainer.model) and trainer. Custom
@@ -31,7 +31,7 @@ average output channels. This is used in the varible wise logging of validation 
 """
 
 
-class BaseMSE(th.nn.MSELoss):
+class BaseMSE(pd.nn.MSELoss):
     """
     Base MSE class offers impementaion for basic MSE loss compatable with dlwp custom loss training
     """
@@ -56,9 +56,9 @@ class BaseMSE(th.nn.MSELoss):
 
         Parameters
         ----------
-        prediction: torch.Tensor
+        prediction: paddle.Tensor
             The prediction tensor
-        target: torch.Tensor
+        target: paddle.Tensor
             The target tensor
         average_channels: bool, optional
             whether the mean of the channels should be taken
@@ -66,14 +66,14 @@ class BaseMSE(th.nn.MSELoss):
         if not (prediction.ndim == 6 and target.ndim == 6):
             raise AssertionError("Expected predictions to have 6 dimensions")
 
-        d = ((target - prediction) ** 2).mean(dim=(0, 1, 2, 4, 5))
+        d = ((target - prediction) ** 2).mean(axis=(0, 1, 2, 4, 5))
         if average_channels:
-            return th.mean(d)
+            return pd.mean(d)
         else:
             return d
 
 
-class WeightedMSE(th.nn.MSELoss):
+class WeightedMSE(pd.nn.MSELoss):
 
     """
     Loss object that allows for user defined weighting of variables when calculating MSE
@@ -91,7 +91,7 @@ class WeightedMSE(th.nn.MSELoss):
             in order consistent with order of model output channels
         """
         super().__init__()
-        self.loss_weights = th.tensor(weights)
+        self.loss_weights = pd.tensor(weights)
         self.device = None
 
     def setup(self, trainer):
@@ -111,9 +111,9 @@ class WeightedMSE(th.nn.MSELoss):
 
         Parameters
         ----------
-        prediction: torch.Tensor
+        prediction: paddle.Tensor
             The prediction tensor
-        target: torch.Tensor
+        target: paddle.Tensor
             The target tensor
         average_channels: bool, optional
             whether the mean of the channels should be taken
@@ -121,8 +121,8 @@ class WeightedMSE(th.nn.MSELoss):
         if not (prediction.ndim == 6 and target.ndim == 6):
             raise AssertionError("Expected predictions to have 6 dimensions")
 
-        d = ((target - prediction) ** 2).mean(dim=(0, 1, 2, 4, 5)) * self.loss_weights
+        d = ((target - prediction) ** 2).mean(axis=(0, 1, 2, 4, 5)) * self.loss_weights
         if average_channels:
-            return th.mean(d)
+            return pd.mean(d)
         else:
             return d

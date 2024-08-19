@@ -17,18 +17,18 @@
 from typing import Union
 
 import numpy as np
-import torch
+import paddle
 
 from .histogram import cdf as cdf_function
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
-@torch.jit.script
+# @paddle.jit.script
 def _kernel_crps_implementation(pred: Tensor, obs: Tensor, biased: bool) -> Tensor:
     """An O(m log m) implementation of the kernel CRPS formulas"""
-    skill = torch.abs(pred - obs[..., None]).mean(-1)
-    pred, _ = torch.sort(pred)
+    skill = paddle.abs(pred - obs[..., None]).mean(-1)
+    pred, _ = paddle.sort(pred)
 
     # derivation of fast implementation of spread-portion of CRPS formula when x is sorted
     # sum_(i,j=1)^m |x_i - x_j| = sum_(i<j) |x_i -x_j| + sum_(i > j) |x_i - x_j|
@@ -37,11 +37,11 @@ def _kernel_crps_implementation(pred: Tensor, obs: Tensor, biased: bool) -> Tens
     #                           = 2 sum_(i <= j) x_j - 2 sum_(i <= j) x_i
     #                           = 2 sum_(j=1)^m j x_j - 2 sum (m - i + 1) x_i
     #                           = 2 sum_(i=1)^m (2i - m - 1) x_i
-    m = pred.size(-1)
-    i = torch.arange(1, m + 1, device=pred.device, dtype=pred.dtype)
+    m = pred.shape[-1]
+    i = paddle.arange(1, m + 1, dtype=pred.dtype).to(device=pred.place)
     denom = m * m if biased else m * (m - 1)
     factor = (2 * i - m - 1) / denom
-    spread = torch.sum(factor * pred, dim=-1)
+    spread = paddle.sum(factor * pred, axis=-1)
     return skill - spread
 
 
@@ -84,7 +84,7 @@ def kcrps(pred: Tensor, obs: Tensor, dim: int = 0, biased: bool = True):
     Tensor
         Map of CRPS
     """
-    pred = torch.movedim(pred, dim, -1)
+    pred = paddle.movedim(pred, dim, -1)
     return _kernel_crps_implementation(pred, obs, biased=biased)
 
 
@@ -121,7 +121,7 @@ def _crps_gaussian(mean: Tensor, std: Tensor, obs: Union[Tensor, np.ndarray]) ->
         Map of CRPS
     """
     if isinstance(obs, np.ndarray):
-        obs = torch.from_numpy(obs).to(mean.device)
+        obs = paddle.to_tensor(obs).to(mean.place)
     # Check shape compatibility
     if mean.shape != std.shape:
         raise ValueError(
@@ -143,12 +143,12 @@ def _crps_gaussian(mean: Tensor, std: Tensor, obs: Union[Tensor, np.ndarray]) ->
         )
 
     d = (obs - mean) / std
-    phi = torch.exp(-0.5 * d**2) / torch.sqrt(torch.as_tensor(2 * torch.pi))
+    phi = paddle.exp(-0.5 * d**2) / paddle.sqrt(paddle.to_tensor(2 * paddle.pi))
 
     # Note, simplified expression below is not exactly Gaussian CDF
-    Phi = torch.erf(d / torch.sqrt(torch.as_tensor(2.0)))
+    Phi = paddle.erf(d / paddle.sqrt(paddle.to_tensor(2.0)))
 
-    return std * (2 * phi + d * Phi - 1.0 / torch.sqrt(torch.as_tensor(torch.pi)))
+    return std * (2 * phi + d * Phi - 1.0 / paddle.sqrt(paddle.to_tensor(paddle.pi)))
 
 
 def _crps_from_cdf(
@@ -186,7 +186,7 @@ def _crps_from_cdf(
         Map of CRPS
     """
     if isinstance(obs, np.ndarray):
-        obs = torch.from_numpy(obs).to(cdf.device)
+        obs = paddle.to_tensor(obs).to(cdf.place)
     if bin_edges.shape[1:] != cdf.shape[1:]:
         raise ValueError(
             "Expected bins and cdf to have compatible non-zeroth dimensions but have shapes"
@@ -213,8 +213,8 @@ def _crps_from_cdf(
         )
     dbins = bin_edges[1, ...] - bin_edges[0, ...]
     bin_mids = 0.5 * (bin_edges[1:] + bin_edges[:-1])
-    obs = torch.ge(bin_mids, obs).int()
-    return torch.sum(torch.abs(cdf - obs) ** 2 * dbins, dim=0)
+    obs = paddle.ge(bin_mids, obs).int()
+    return paddle.sum(paddle.abs(cdf - obs) ** 2 * dbins, axis=0)
 
 
 def _crps_from_counts(
@@ -252,7 +252,7 @@ def _crps_from_counts(
         Map of CRPS
     """
     if isinstance(obs, np.ndarray):
-        obs = torch.from_numpy(obs).to(counts.device)
+        obs = paddle.to_tensor(obs).to(counts.place)
     if bin_edges.shape[1:] != counts.shape[1:]:
         raise ValueError(
             "Expected bins and cdf to have compatible non-zeroth dimensions but have shapes"
@@ -277,7 +277,7 @@ def _crps_from_counts(
             + str(counts.shape[0])
             + "+1."
         )
-    cdf_hat = torch.cumsum(counts / torch.sum(counts, dim=0), dim=0)
+    cdf_hat = paddle.cumsum(counts / paddle.sum(counts, axis=0), axis=0)
     return _crps_from_cdf(bin_edges, cdf_hat, obs)
 
 
@@ -337,7 +337,7 @@ def crps(
         raise ValueError("Method must either be 'kernel', 'sort' or 'histogram'.")
 
     n = pred.shape[dim]
-    obs = torch.as_tensor(obs, device=pred.device, dtype=pred.dtype)
+    obs = paddle.to_tensor(obs, dtype=pred.dtype).to(device=pred.place)
     if method in ["kernel", "sort"]:
         return kcrps(pred, obs, dim=dim)
     else:
