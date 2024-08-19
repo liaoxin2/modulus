@@ -19,8 +19,8 @@ import math
 from typing import Any, Callable, Optional
 
 import numpy as np
-import torch
-from torch import Tensor
+import paddle
+from paddle import Tensor
 
 
 def image_batching(
@@ -81,24 +81,26 @@ def image_batching(
     )
     pad_x_right = padded_shape_x - img_shape_x - boundary_pix
     pad_y_right = padded_shape_y - img_shape_y - boundary_pix
-    input_padded = torch.zeros(
-        input.shape[0], input.shape[1], padded_shape_x, padded_shape_y
+    input_padded = paddle.zeros(
+        [input.shape[0], input.shape[1], padded_shape_x, padded_shape_y]
     ).cuda()
-    image_padding = torch.nn.ReflectionPad2d(
+    image_padding = paddle.nn.ReflectionPad2d(
         (boundary_pix, pad_x_right, boundary_pix, pad_y_right)
     ).cuda()  # (padding_left,padding_right,padding_top,padding_bottom)
     input_padded = image_padding(input)
     patch_num = patch_num_x * patch_num_y
     if input_interp is not None:
-        output = torch.zeros(
-            patch_num * batch_size,
-            input.shape[1] + input_interp.shape[1],
-            patch_shape_x,
-            patch_shape_y,
+        output = paddle.zeros(
+            [
+                patch_num * batch_size,
+                input.shape[1] + input_interp.shape[1],
+                patch_shape_x,
+                patch_shape_y,
+            ]
         ).cuda()
     else:
-        output = torch.zeros(
-            patch_num * batch_size, input.shape[1], patch_shape_x, patch_shape_y
+        output = paddle.zeros(
+            [patch_num * batch_size, input.shape[1], patch_shape_x, patch_shape_y]
         ).cuda()
     for x_index in range(patch_num_x):
         for y_index in range(patch_num_y):
@@ -109,7 +111,7 @@ def image_batching(
                     (x_index * patch_num_x + y_index)
                     * batch_size : (x_index * patch_num_x + y_index + 1)
                     * batch_size,
-                ] = torch.cat(
+                ] = paddle.concat(
                     (
                         input_padded[
                             :,
@@ -119,7 +121,7 @@ def image_batching(
                         ],
                         input_interp,
                     ),
-                    dim=1,
+                    axis=1,
                 )
             else:
                 output[
@@ -193,10 +195,10 @@ def image_fuse(
     pad_y_right = padded_shape_y - img_shape_y - boundary_pix
     residual_x = patch_shape_x - pad_x_right  # residual pixels in the last patch
     residual_y = patch_shape_y - pad_y_right  # residual pixels in the last patch
-    output = torch.zeros(batch_size, input.shape[1], img_shape_x, img_shape_y).cuda()
-    one_map = torch.ones(1, 1, input.shape[2], input.shape[3]).cuda()
-    count_map = torch.zeros(
-        1, 1, img_shape_x, img_shape_y
+    output = paddle.zeros([batch_size, input.shape[1], img_shape_x, img_shape_y]).cuda()
+    one_map = paddle.ones([1, 1, input.shape[2], input.shape[3]]).cuda()
+    count_map = paddle.zeros(
+        [1, 1, img_shape_x, img_shape_y]
     ).cuda()  # to count the overlapping times
 
     for x_index in range(patch_num_x):
@@ -289,7 +291,7 @@ def stochastic_sampler(
     latents: Tensor,
     img_lr: Tensor,
     class_labels: Optional[Tensor] = None,
-    randn_like: Callable[[Tensor], Tensor] = torch.randn_like,
+    randn_like: Callable[[Tensor], Tensor] = paddle.randn_like,
     img_shape: int = 448,
     patch_shape: int = 448,
     overlap_pix: int = 4,
@@ -319,7 +321,7 @@ def stochastic_sampler(
         Class labels for conditional generation, if required by the model. By default None.
     randn_like : Callable[[Tensor], Tensor]
         Function to generate random noise with the same shape as the input tensor.
-        By default torch.randn_like.
+        By default paddle.randn_like.
     img_shape : int
         The height and width of the full image (assumed to be square). By default 448.
     patch_shape : int
@@ -358,21 +360,21 @@ def stochastic_sampler(
     sigma_max = min(sigma_max, net.sigma_max)
 
     # Time step discretization.
-    step_indices = torch.arange(num_steps, dtype=torch.float64, device=latents.device)
+    step_indices = paddle.arange(num_steps, dtype=paddle.float64, device=latents.device)
     t_steps = (
         sigma_max ** (1 / rho)
         + step_indices
         / (num_steps - 1)
         * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))
     ) ** rho
-    t_steps = torch.cat(
-        [net.round_sigma(t_steps), torch.zeros_like(t_steps[:1])]
+    t_steps = paddle.concat(
+        [net.round_sigma(t_steps), paddle.zeros_like(t_steps[:1])]
     )  # t_N = 0
 
     b = latents.shape[0]
-    Nx = torch.arange(img_shape)
-    Ny = torch.arange(img_shape)
-    grid = torch.stack(torch.meshgrid(Nx, Ny, indexing="ij"), dim=0)[
+    Nx = paddle.arange(img_shape)
+    Ny = paddle.arange(img_shape)
+    grid = paddle.stack(paddle.meshgrid(Nx, Ny, indexing="ij"), axis=0)[
         None,
     ].expand(b, -1, -1, -1)
 
@@ -380,12 +382,12 @@ def stochastic_sampler(
     batch_size = img_lr.shape[0]
     x_lr = img_lr
     if mean_hr is not None:
-        x_lr = torch.cat((mean_hr.expand(x_lr.shape[0], -1, -1, -1), x_lr), dim=1)
+        x_lr = paddle.concat((mean_hr.expand(x_lr.shape[0], -1, -1, -1), x_lr), axis=1)
     global_index = None
 
     # input and position padding + patching
     if patch_shape != img_shape:
-        input_interp = torch.nn.functional.interpolate(
+        input_interp = paddle.nn.functional.interpolate(
             img_lr, (patch_shape, patch_shape), mode="bilinear"
         )
         x_lr = image_batching(
@@ -411,7 +413,7 @@ def stochastic_sampler(
         ).int()
 
     # Main sampling loop.
-    x_next = latents.to(torch.float64) * t_steps[0]
+    x_next = latents.to(paddle.float64) * t_steps[0]
     for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])):  # 0, ..., N-1
         x_cur = x_next
         # Increase noise temporarily.
@@ -437,7 +439,7 @@ def stochastic_sampler(
             x_hat_batch = x_hat
         denoised = net(
             x_hat_batch, x_lr, t_hat, class_labels, global_index=global_index
-        ).to(torch.float64)
+        ).to(paddle.float64)
         if patch_shape != img_shape:
             denoised = image_fuse(
                 denoised,
@@ -467,7 +469,7 @@ def stochastic_sampler(
                 )
             else:
                 x_next_batch = x_next
-            denoised = net(x_next_batch, x_lr, t_next, class_labels).to(torch.float64)
+            denoised = net(x_next_batch, x_lr, t_next, class_labels).to(paddle.float64)
             if patch_shape != img_shape:
                 denoised = image_fuse(
                     denoised,

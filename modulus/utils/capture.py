@@ -22,14 +22,14 @@ from contextlib import nullcontext
 from logging import Logger
 from typing import Any, Callable, Dict, NewType, Optional, Union
 
-import torch
+import paddle
 
 import modulus
 from modulus.distributed import DistributedManager
 
-float16 = NewType("float16", torch.float16)
-bfloat16 = NewType("bfloat16", torch.bfloat16)
-optim = NewType("optim", torch.optim)
+float16 = NewType("float16", paddle.float16)
+bfloat16 = NewType("bfloat16", paddle.bfloat16)
+optim = NewType("optim", paddle.optimizer)
 
 
 class _StaticCapture(object):
@@ -62,7 +62,7 @@ class _StaticCapture(object):
         use_autocast: bool = True,
         use_gradscaler: bool = True,
         cuda_graph_warmup: int = 11,
-        amp_type: Union[float16, bfloat16] = torch.float16,
+        amp_type: Union[float16, bfloat16] = paddle.float16,
         label: Optional[str] = None,
     ):
         self.logger = logger if logger else self.logger
@@ -83,8 +83,8 @@ class _StaticCapture(object):
         self.no_grad = False
 
         # Set up toggles for optimizations
-        if not (amp_type == torch.float16 or amp_type == torch.bfloat16):
-            raise ValueError("AMP type must be torch.float16 or torch.bfloat16")
+        if not (amp_type == paddle.float16 or amp_type == paddle.bfloat16):
+            raise ValueError("AMP type must be paddle.float16 or paddle.bfloat16")
         # CUDA device
         if "cuda" in str(self.model.device):
             # CUDA graphs
@@ -107,17 +107,20 @@ class _StaticCapture(object):
 
             self.amp_device = "cuda"
             # Check if bfloat16 is suppored on the GPU
-            if amp_type == torch.bfloat16 and not torch.cuda.is_bf16_supported():
+            if (
+                amp_type == paddle.bfloat16
+                and not paddle.device.cuda.is_bf16_supported()
+            ):
                 self.logger.warning(
                     "Current CUDA device does not support bfloat16, falling back to float16"
                 )
-                amp_type = torch.float16
+                amp_type = paddle.float16
             self.amp_dtype = amp_type
             # Gradient Scaler
-            scaler_enabled = self.use_gradscaler and amp_type == torch.float16
+            scaler_enabled = self.use_gradscaler and amp_type == paddle.float16
             self.scaler = self._init_amp_scaler(scaler_enabled, self.logger)
 
-            self.replay_stream = torch.cuda.Stream(self.model.device)
+            self.replay_stream = paddle.device.cuda.Stream(self.model.device)
         # CPU device
         else:
             self.cuda_graphs_enabled = False
@@ -132,18 +135,18 @@ class _StaticCapture(object):
             self.amp_device = "cpu"
             # Only float16 is supported on CPUs
             # https://pytorch.org/docs/stable/amp.html#cpu-op-specific-behavior
-            if amp_type == torch.float16 and use_autocast:
+            if amp_type == paddle.float16 and use_autocast:
                 self.logger.warning(
-                    "torch.float16 not supported for CPU AMP, switching to torch.bfloat16"
+                    "paddle.float16 not supported for CPU AMP, switching to paddle.bfloat16"
                 )
-                amp_type = torch.bfloat16
-            self.amp_dtype = torch.bfloat16
+                amp_type = paddle.bfloat16
+            self.amp_dtype = paddle.bfloat16
             # Gradient Scaler (not enabled)
             self.scaler = self._init_amp_scaler(False, self.logger)
             self.replay_stream = None
 
         if self.cuda_graphs_enabled:
-            self.graph = torch.cuda.CUDAGraph()
+            self.graph = paddle.device.cuda.CUDAGraph()
 
         self.output = None
         self.iteration = 0
@@ -156,7 +159,7 @@ class _StaticCapture(object):
         def decorated(*args: Any, **kwds: Any) -> Any:
             """Training step decorator function"""
 
-            with torch.no_grad() if self.no_grad else nullcontext():
+            with paddle.no_grad() if self.no_grad else nullcontext():
                 if self.cuda_graphs_enabled:
                     self._cuda_graph_forward(*args, **kwds)
                 else:
@@ -182,26 +185,26 @@ class _StaticCapture(object):
         """
         # Graph warm up
         if self.iteration < self.cuda_graph_warmup:
-            self.replay_stream.wait_stream(torch.cuda.current_stream())
+            self.replay_stream.wait_stream(paddle.device.cuda.current_stream())
             self._zero_grads()
-            with torch.cuda.stream(self.replay_stream):
+            with paddle.device.cuda.stream(self.replay_stream):
                 output = self._amp_forward(*args, **kwargs)
                 self.output = output.detach()
-            torch.cuda.current_stream().wait_stream(self.replay_stream)
+            paddle.device.cuda.current_stream().wait_stream(self.replay_stream)
         # CUDA Graphs
         else:
             # Graph record
             if self.iteration == self.cuda_graph_warmup:
                 self.logger.warning(f"Recording graph of '{self.function.__name__}'")
                 self._zero_grads()
-                torch.cuda.synchronize()
+                paddle.device.cuda.synchronize()
                 if DistributedManager().distributed:
-                    torch.distributed.barrier()
+                    paddle.distributed.barrier()
                     # TODO: temporary workaround till this issue is fixed:
                     # https://github.com/pytorch/pytorch/pull/104487#issuecomment-1638665876
                     delay = os.environ.get("MODULUS_CUDA_GRAPH_CAPTURE_DELAY", "10")
                     time.sleep(int(delay))
-                with torch.cuda.graph(self.graph):
+                with paddle.device.cuda.graph(self.graph):
                     output = self._amp_forward(*args, **kwargs)
                     self.output = output.detach()
             # Graph replay
@@ -243,7 +246,7 @@ class _StaticCapture(object):
         Any
             Output of neural network forward
         """
-        with torch.autocast(
+        with paddle.autocast(
             self.amp_device, enabled=self.use_autocast, dtype=self.amp_dtype
         ):
             output = self.function(*args, **kwargs)
@@ -255,9 +258,9 @@ class _StaticCapture(object):
 
     def _init_amp_scaler(
         self, scaler_enabled: bool, logger: Logger
-    ) -> torch.cuda.amp.GradScaler:
+    ) -> paddle.amp.GradScaler:
         # Create gradient scaler
-        scaler = torch.cuda.amp.GradScaler(enabled=scaler_enabled)
+        scaler = paddle.amp.GradScaler(enabled=scaler_enabled)
         # Store scaler in class variable
         self.amp_scalers[self.label] = scaler
         logging.debug(f"Created gradient scaler {self.label}")
@@ -336,7 +339,7 @@ class StaticCaptureTraining(_StaticCapture):
     ----------
     model : modulus.models.Module
         Modulus Model
-    optim : torch.optim
+    optim : paddle.optimizer
         Optimizer
     logger : Union[Logger, None], optional
         Modulus Launch Logger, by default None
@@ -347,7 +350,7 @@ class StaticCaptureTraining(_StaticCapture):
     cuda_graph_warmup : int, optional
         Number of warmup steps for cuda graphs, by default 11
     amp_type : Union[float16, bfloat16], optional
-        Auto casting type for AMP, by default torch.float16
+        Auto casting type for AMP, by default paddle.float16
     label : Optional[str, None], optional
         Static capture checkpoint label, by default None
 
@@ -360,15 +363,15 @@ class StaticCaptureTraining(_StaticCapture):
     -------
     >>> # Create model
     >>> model = modulus.models.mlp.FullyConnected(2, 64, 2)
-    >>> input = torch.rand(8, 2)
-    >>> output = torch.rand(8, 2)
+    >>> input = paddle.rand(8, 2)
+    >>> output = paddle.rand(8, 2)
     >>> # Create optimizer
-    >>> optim = torch.optim.Adam(model.parameters(), lr=0.001)
+    >>> optim = paddle.optimizer.Adam(model.parameters(), lr=0.001)
     >>> # Create training step function with optimization wrapper
     >>> @StaticCaptureTraining(model=model, optim=optim)
     ... def training_step(model, invar, outvar):
     ...     predvar = model(invar)
-    ...     loss = torch.sum(torch.pow(predvar - outvar, 2))
+    ...     loss = paddle.sum(paddle.pow(predvar - outvar, 2))
     ...     return loss
     ...
     >>> # Sample training loop
@@ -393,12 +396,12 @@ class StaticCaptureTraining(_StaticCapture):
     def __init__(
         self,
         model: "modulus.Module",
-        optim: torch.optim,
+        optim: paddle.optimizer,
         logger: Union[Logger, None] = None,
         use_graphs: bool = True,
         use_amp: bool = True,
         cuda_graph_warmup: int = 11,
-        amp_type: Union[float16, bfloat16] = torch.float16,
+        amp_type: Union[float16, bfloat16] = paddle.float16,
         label: Optional[str] = None,
     ):
         super().__init__(
@@ -435,7 +438,7 @@ class StaticCaptureEvaluateNoGrad(_StaticCapture):
     cuda_graph_warmup : int, optional
         Number of warmup steps for cuda graphs, by default 11
     amp_type : Union[float16, bfloat16], optional
-        Auto casting type for AMP, by default torch.float16
+        Auto casting type for AMP, by default paddle.float16
     label : Optional[str, None], optional
         Static capture checkpoint label, by default None
 
@@ -448,7 +451,7 @@ class StaticCaptureEvaluateNoGrad(_StaticCapture):
     -------
     >>> # Create model
     >>> model = modulus.models.mlp.FullyConnected(2, 64, 2)
-    >>> input = torch.rand(8, 2)
+    >>> input = paddle.rand(8, 2)
     >>> # Create evaluate function with optimization wrapper
     >>> @StaticCaptureEvaluateNoGrad(model=model)
     ... def eval_step(model, invar):
@@ -457,7 +460,7 @@ class StaticCaptureEvaluateNoGrad(_StaticCapture):
     ...
     >>> output = eval_step(model, input)
     >>> output.size()
-    torch.Size([8, 2])
+    paddle.Size([8, 2])
 
     Note
     ----
@@ -473,7 +476,7 @@ class StaticCaptureEvaluateNoGrad(_StaticCapture):
         use_graphs: bool = True,
         use_amp: bool = True,
         cuda_graph_warmup: int = 11,
-        amp_type: Union[float16, bfloat16] = torch.float16,
+        amp_type: Union[float16, bfloat16] = paddle.float16,
         label: Optional[str] = None,
     ):
         super().__init__(

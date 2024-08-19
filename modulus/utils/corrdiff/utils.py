@@ -18,7 +18,7 @@ import datetime
 
 import cftime
 import nvtx
-import torch
+import paddle
 import tqdm
 
 from modulus.utils.generative import StackedRandomGenerator, time_range
@@ -29,71 +29,71 @@ from modulus.utils.generative import StackedRandomGenerator, time_range
 
 
 def regression_step(
-    net: torch.nn.Module, img_lr: torch.Tensor, latents_shape: torch.Size
-) -> torch.Tensor:
+    net: paddle.nn.Layer, img_lr: paddle.Tensor, latents_shape: paddle.Size
+) -> paddle.Tensor:
     """
     Given a low-res input, performs a regression step to produce ensemble mean.
     This function performs the regression on a single instance and then replicates
     the results across the batch dimension.
 
     Args:
-        net (torch.nn.Module): U-Net model for regression.
-        img_lr (torch.Tensor): Low-resolution input.
-        latents_shape (torch.Size): Shape of the latent representation. Typically
+        net (paddle.nn.Layer): U-Net model for regression.
+        img_lr (paddle.Tensor): Low-resolution input.
+        latents_shape (paddle.Size): Shape of the latent representation. Typically
         (batch_size, out_channels, image_shape_x, image_shape_y).
 
 
     Returns:
-        torch.Tensor: Predicted output at the next time step.
+        paddle.Tensor: Predicted output at the next time step.
     """
     # Create a tensor of zeros with the given shape and move it to the appropriate device
-    x_hat = torch.zeros(latents_shape, dtype=torch.float64, device=net.device)
-    t_hat = torch.tensor(1.0, dtype=torch.float64, device=net.device)
+    x_hat = paddle.zeros(latents_shape, dtype=paddle.float64).to(device=net.place)
+    t_hat = paddle.to_tensor(1.0, dtype=paddle.float64).to(device=net.place)
 
     # Perform regression on a single batch element
-    with torch.inference_mode():
+    with paddle.no_grad():
         x = net(x_hat[0:1], img_lr, t_hat)
 
     # If the batch size is greater than 1, repeat the prediction
     if x_hat.shape[0] > 1:
-        x = x.repeat([d if i == 0 else 1 for i, d in enumerate(x_hat.shape)])
+        x = x.tile([d if i == 0 else 1 for i, d in enumerate(x_hat.shape)])
 
     return x
 
 
 def diffusion_step(  # TODO generalize the module and add defaults
-    net: torch.nn.Module,
+    net: paddle.nn.Layer,
     sampler_fn: callable,
     seed_batch_size: int,
     img_shape: tuple,
     img_out_channels: int,
     rank_batches: list,
-    img_lr: torch.Tensor,
+    img_lr: paddle.Tensor,
     rank: int,
-    device: torch.device,
-    hr_mean: torch.Tensor = None,
-) -> torch.Tensor:
+    device: paddle.device,
+    hr_mean: paddle.Tensor = None,
+) -> paddle.Tensor:
 
     """
     Generate images using diffusion techniques as described in the relevant paper.
 
     Args:
-        net (torch.nn.Module): The diffusion model network.
+        net (paddle.nn.Layer): The diffusion model network.
         sampler_fn (callable): Function used to sample images from the diffusion model.
         seed_batch_size (int): Number of seeds per batch.
         img_shape (tuple): Shape of the images, (height, width).
         img_out_channels (int): Number of output channels for the image.
         rank_batches (list): List of batches of seeds to process.
-        img_lr (torch.Tensor): Low-resolution input image.
+        img_lr (paddle.Tensor): Low-resolution input image.
         rank (int): Rank of the current process for distributed processing.
-        device (torch.device): Device to perform computations.
-        mean_hr (torch.Tensor, optional): High-resolution mean tensor, to be used as an additional input. By default None.
+        device (paddle.device): Device to perform computations.
+        mean_hr (paddle.Tensor, optional): High-resolution mean tensor, to be used as an additional input. By default None.
 
     Returns:
-        torch.Tensor: Generated images concatenated across batches.
+        paddle.Tensor: Generated images concatenated across batches.
     """
 
-    img_lr = img_lr.to(memory_format=torch.channels_last)
+    # img_lr = img_lr.to(memory_format=paddle.channels_last)
 
     # Handling of the high-res mean
     additional_args = {}
@@ -118,14 +118,14 @@ def diffusion_step(  # TODO generalize the module and add defaults
                     img_shape[0],
                 ],
                 device=device,
-            ).to(memory_format=torch.channels_last)
+            )  # .to(memory_format=paddle.channels_last)
 
-            with torch.inference_mode():
+            with paddle.no_grad():
                 images = sampler_fn(
                     net, latents, img_lr, randn_like=rnd.randn_like, **additional_args
                 )
             all_images.append(images)
-    return torch.cat(all_images)
+    return paddle.concat(all_images)
 
 
 ############################################################################
