@@ -77,11 +77,11 @@ supports CUDA Graphs and Automatic Mixed-Precision.
             self.enc2 = self.conv_block(64, 128)
 
             self.dec1 = self.upconv_block(128, 64)
-            self.final = nn.Conv2d(64, out_channels, kernel_size=1)
+            self.final = nn.Conv2D(64, out_channels, kernel_size=1)
 
         def conv_block(self, in_channels, out_channels):
             return nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, 3, padding=1),
+                nn.Conv2D(in_channels, out_channels, 3, padding=1),
                 nn.ReLU(inplace=True),
                 nn.MaxPool2d(2)
             )
@@ -89,7 +89,7 @@ supports CUDA Graphs and Automatic Mixed-Precision.
         def upconv_block(self, in_channels, out_channels):
             return nn.Sequential(
                 nn.ConvTranspose2d(in_channels, out_channels, 2, stride=2),
-                nn.Conv2d(out_channels, out_channels, 3, padding=1),
+                nn.Conv2D(out_channels, out_channels, 3, padding=1),
                 nn.ReLU(inplace=True)
             )
 
@@ -130,11 +130,11 @@ that this model supports. In this case we will enable CUDA Graphs and Automatic 
             self.enc2 = self.conv_block(64, 128)
 
             self.dec1 = self.upconv_block(128, 64)
-            self.final = nn.Conv2d(64, out_channels, kernel_size=1)
+            self.final = nn.Conv2D(64, out_channels, kernel_size=1)
 
         def conv_block(self, in_channels, out_channels):
             return nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, 3, padding=1),
+                nn.Conv2D(in_channels, out_channels, 3, padding=1),
                 nn.ReLU(inplace=True),
                 nn.MaxPool2d(2)
             )
@@ -142,7 +142,7 @@ that this model supports. In this case we will enable CUDA Graphs and Automatic 
         def upconv_block(self, in_channels, out_channels):
             return nn.Sequential(
                 nn.ConvTranspose2d(in_channels, out_channels, 2, stride=2),
-                nn.Conv2d(out_channels, out_channels, 3, padding=1),
+                nn.Conv2D(out_channels, out_channels, 3, padding=1),
                 nn.ReLU(inplace=True)
             )
 
@@ -225,8 +225,8 @@ below.
     class TorchModel(nn.Module):
         def __init__(self):
             super(TorchModel, self).__init__()
-            self.conv1 = nn.Conv2d(1, 20, 5)
-            self.conv2 = nn.Conv2d(20, 20, 5)
+            self.conv1 = nn.Conv2D(1, 20, 5)
+            self.conv2 = nn.Conv2D(20, 20, 5)
     
         def forward(self, x):
             x = self.conv1(x)
@@ -374,8 +374,8 @@ example, suppose your package structure is as follows:
    class MyModel(nn.Module):
        def __init__(self):
            super(MyModel, self).__init__()
-           self.conv1 = nn.Conv2d(1, 20, 5)
-           self.conv2 = nn.Conv2d(20, 20, 5)
+           self.conv1 = nn.Conv2D(1, 20, 5)
+           self.conv2 = nn.Conv2D(20, 20, 5)
    
        def forward(self, x):
            x = self.conv1(x)

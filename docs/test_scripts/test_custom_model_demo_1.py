@@ -1,9 +1,9 @@
 # [imports]
-import torch
+import paddle
 
 # [imports]
-# [pytorch model]
-import torch.nn as nn
+# [paddle model]
+import paddle.nn as nn
 
 import modulus
 from modulus.datapipes.benchmarks.darcy import Darcy2D
@@ -19,11 +19,11 @@ class UNet(nn.Module):
 
         self.dec1 = self.upconv_block(128, 64)
         self.dec2 = self.upconv_block(64, 32)
-        self.final = nn.Conv2d(32, out_channels, kernel_size=1)
+        self.final = nn.Conv2D(32, out_channels, kernel_size=1)
 
     def conv_block(self, in_channels, out_channels):
         return nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, padding=1),
+            nn.Conv2D(in_channels, out_channels, 3, padding=1),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2),
         )
@@ -31,7 +31,7 @@ class UNet(nn.Module):
     def upconv_block(self, in_channels, out_channels):
         return nn.Sequential(
             nn.ConvTranspose2d(in_channels, out_channels, 2, stride=2),
-            nn.Conv2d(out_channels, out_channels, 3, padding=1),
+            nn.Conv2D(out_channels, out_channels, 3, padding=1),
             nn.ReLU(inplace=True),
         )
 
@@ -43,13 +43,13 @@ class UNet(nn.Module):
         return self.final(x)
 
 
-# [pytorch model]
+# [paddle model]
 
 # [modulus model]
 
 from dataclasses import dataclass
 
-import torch.nn as nn
+import paddle.nn as nn
 
 from modulus.models.meta import ModelMetaData
 from modulus.models.module import Module
@@ -91,7 +91,7 @@ class MdlsSymUNet(Arch):
 
         self.mdls_model = MdlsUNet(in_channels, out_channels)  # MdlsUNet defined above
 
-    def forward(self, dict_tensor: Dict[str, torch.Tensor]):
+    def forward(self, dict_tensor: Dict[str, paddle.Tensor]):
         x = self.concat_input(
             dict_tensor,
             self.input_key_dict,
@@ -120,8 +120,8 @@ dataloader = Darcy2D(
 )
 model = MdlsUNet().to("cuda")
 
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-scheduler = torch.optim.lr_scheduler.LambdaLR(
+optimizer = paddle.optimizer.Adam(0.01, parameters=model.parameters())
+scheduler = paddle.optimizer.lr.LambdaDecay(
     optimizer, lr_lambda=lambda step: 0.85**step
 )
 
