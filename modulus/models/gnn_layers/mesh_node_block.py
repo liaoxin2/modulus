@@ -25,7 +25,7 @@ from .mesh_graph_mlp import MeshGraphMLP
 from .utils import CuGraphCSC, aggregate_and_concat
 
 
-class MeshNodeBlock(nn.Module):
+class MeshNodeBlock(nn.Layer):
     """Node block used e.g. in GraphCast or MeshGraphNet
     operating on a latent space represented by a mesh.
 
@@ -43,8 +43,8 @@ class MeshNodeBlock(nn.Module):
         Number of neurons in each hidden layer, by default 512
     hidden_layers : int, optional
         Number of neurons in each hidden layer, by default 1
-    activation_fn : nn.Module, optional
-       Type of activation function, by default nn.SiLU()
+    activation_fn : nn.Layer, optional
+       Type of activation function, by default nn.Silu()
     norm_type : str, optional
         Normalization type ["TELayerNorm", "LayerNorm"].
         Use "TELayerNorm" for optimal performance. By default "LayerNorm".
@@ -61,7 +61,7 @@ class MeshNodeBlock(nn.Module):
         output_dim: int = 512,
         hidden_dim: int = 512,
         hidden_layers: int = 1,
-        activation_fn: nn.Module = nn.SiLU(),
+        activation_fn: nn.Layer = nn.Silu(),
         norm_type: str = "LayerNorm",
         recompute_activation: bool = False,
     ):

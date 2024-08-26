@@ -16,10 +16,10 @@
 
 import math
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch import Tensor
+import paddle
+import paddle.nn as nn
+import paddle.nn.functional as F
+from paddle import Tensor
 
 
 def _get_same_padding(x: int, k: int, s: int) -> int:
@@ -29,7 +29,11 @@ def _get_same_padding(x: int, k: int, s: int) -> int:
     return max(s * math.ceil(x / s) - s - x + k, 0)
 
 
-class _ConvLayer(nn.Module):
+def expit(x):
+    return 1 / (1 + 1 / paddle.exp(x))
+
+
+class _ConvLayer(nn.Layer):
     """Generalized Convolution Block
 
     Parameters
@@ -44,7 +48,7 @@ class _ConvLayer(nn.Module):
         Kernel size for the convolution
     stride : int
         Stride for the convolution, by default 1
-    activation_fn : nn.Module, optional
+    activation_fn : nn.Layer, optional
         Activation function to use, by default nn.Identity()
     """
 
@@ -55,7 +59,7 @@ class _ConvLayer(nn.Module):
         dimension: int,  # TODO check if there are ways to infer this
         kernel_size: int,
         stride: int = 1,
-        activation_fn: nn.Module = nn.Identity(),
+        activation_fn: nn.Layer = nn.Identity(),
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
@@ -66,28 +70,28 @@ class _ConvLayer(nn.Module):
         self.activation_fn = activation_fn
 
         if self.dimension == 1:
-            self.conv = nn.Conv1d(
+            self.conv = nn.Conv1D(
                 self.in_channels,
                 self.out_channels,
                 self.kernel_size,
                 self.stride,
-                bias=True,
+                bias_attr=True,
             )
         elif self.dimension == 2:
-            self.conv = nn.Conv2d(
+            self.conv = nn.Conv2D(
                 self.in_channels,
                 self.out_channels,
                 self.kernel_size,
                 self.stride,
-                bias=True,
+                bias_attr=True,
             )
         elif self.dimension == 3:
-            self.conv = nn.Conv3d(
+            self.conv = nn.Conv3D(
                 self.in_channels,
                 self.out_channels,
                 self.kernel_size,
                 self.stride,
-                bias=True,
+                bias_attr=True,
             )
         else:
             raise ValueError("Only 1D, 2D and 3D dimensions are supported")
@@ -100,20 +104,20 @@ class _ConvLayer(nn.Module):
 
     def reset_parameters(self) -> None:
         """Initialization for network parameters"""
-        nn.init.constant_(self.conv.bias, 0)
-        nn.init.xavier_uniform_(self.conv.weight)
+        nn.initializer.Constant(0.0)(self.conv.bias)
+        nn.initializer.XavierUniform()(self.conv.weight)
 
     def forward(self, x: Tensor) -> Tensor:
-        input_length = len(x.size()) - 2  # exclude channel and batch dims
+        input_length = len(x.shape) - 2  # exclude channel and batch dims
         if input_length != self.dimension:
             raise ValueError("Input dimension not compatible")
 
         if input_length == 1:
-            iw = x.size()[-1:][0]
+            iw = x.shape[-1:][0]
             pad_w = _get_same_padding(iw, self.kernel_size, self.stride)
             x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2], mode="constant", value=0.0)
         elif input_length == 2:
-            ih, iw = x.size()[-2:]
+            ih, iw = x.shape[-2:]
             pad_h, pad_w = _get_same_padding(
                 ih, self.kernel_size, self.stride
             ), _get_same_padding(iw, self.kernel_size, self.stride)
@@ -124,7 +128,7 @@ class _ConvLayer(nn.Module):
                 value=0.0,
             )
         else:
-            _id, ih, iw = x.size()[-3:]
+            _id, ih, iw = x.shape[-3:]
             pad_d, pad_h, pad_w = (
                 _get_same_padding(_id, self.kernel_size, self.stride),
                 _get_same_padding(ih, self.kernel_size, self.stride),
@@ -152,7 +156,7 @@ class _ConvLayer(nn.Module):
         return x
 
 
-class _TransposeConvLayer(nn.Module):
+class _TransposeConvLayer(nn.Layer):
     """Generalized Transposed Convolution Block
 
     Parameters
@@ -167,7 +171,7 @@ class _TransposeConvLayer(nn.Module):
         Kernel size for the convolution
     stride : int
         Stride for the convolution, by default 1
-    activation_fn : nn.Module, optional
+    activation_fn : nn.Layer, optional
         Activation function to use, by default nn.Identity()
     """
 
@@ -189,28 +193,28 @@ class _TransposeConvLayer(nn.Module):
         self.activation_fn = activation_fn
 
         if dimension == 1:
-            self.trans_conv = nn.ConvTranspose1d(
+            self.trans_conv = nn.Conv1DTranspose(
                 self.in_channels,
                 self.out_channels,
                 self.kernel_size,
                 self.stride,
-                bias=True,
+                bias_attr=True,
             )
         elif dimension == 2:
-            self.trans_conv = nn.ConvTranspose2d(
+            self.trans_conv = nn.Conv2DTranspose(
                 self.in_channels,
                 self.out_channels,
                 self.kernel_size,
                 self.stride,
-                bias=True,
+                bias_attr=True,
             )
         elif dimension == 3:
-            self.trans_conv = nn.ConvTranspose3d(
+            self.trans_conv = nn.Conv3DTranspose(
                 self.in_channels,
                 self.out_channels,
                 self.kernel_size,
                 self.stride,
-                bias=True,
+                bias_attr=True,
             )
         else:
             raise ValueError("Only 1D, 2D and 3D dimensions are supported")
@@ -223,27 +227,27 @@ class _TransposeConvLayer(nn.Module):
 
     def reset_parameters(self) -> None:
         """Initialization for network parameters"""
-        nn.init.constant_(self.trans_conv.bias, 0)
-        nn.init.xavier_uniform_(self.trans_conv.weight)
+        nn.initializer.Constant(0)(self.trans_conv.bias)
+        nn.initializer.XavierUniform()(self.trans_conv.weight)
 
     def forward(self, x: Tensor) -> Tensor:
         orig_x = x
-        input_length = len(orig_x.size()) - 2  # exclude channel and batch dims
+        input_length = len(orig_x.shape) - 2  # exclude channel and batch dims
         if input_length != self.dimension:
             raise ValueError("Input dimension not compatible")
 
         x = self.trans_conv(x)
 
         if input_length == 1:
-            iw = orig_x.size()[-1:][0]
+            iw = orig_x.shape[-1:][0]
             pad_w = _get_same_padding(iw, self.kernel_size, self.stride)
             x = x[
                 :,
                 :,
-                pad_w // 2 : x.size(-1) - (pad_w - pad_w // 2),
+                pad_w // 2 : x.shape[-1] - (pad_w - pad_w // 2),
             ]
         elif input_length == 2:
-            ih, iw = orig_x.size()[-2:]
+            ih, iw = orig_x.shape[-2:]
             pad_h, pad_w = _get_same_padding(
                 ih,
                 self.kernel_size,
@@ -252,11 +256,11 @@ class _TransposeConvLayer(nn.Module):
             x = x[
                 :,
                 :,
-                pad_h // 2 : x.size(-2) - (pad_h - pad_h // 2),
-                pad_w // 2 : x.size(-1) - (pad_w - pad_w // 2),
+                pad_h // 2 : x.shape[-2] - (pad_h - pad_h // 2),
+                pad_w // 2 : x.shape[-1] - (pad_w - pad_w // 2),
             ]
         else:
-            _id, ih, iw = orig_x.size()[-3:]
+            _id, ih, iw = orig_x.shape[-3:]
             pad_d, pad_h, pad_w = (
                 _get_same_padding(_id, self.kernel_size, self.stride),
                 _get_same_padding(ih, self.kernel_size, self.stride),
@@ -265,9 +269,9 @@ class _TransposeConvLayer(nn.Module):
             x = x[
                 :,
                 :,
-                pad_d // 2 : x.size(-3) - (pad_d - pad_d // 2),
-                pad_h // 2 : x.size(-2) - (pad_h - pad_h // 2),
-                pad_w // 2 : x.size(-1) - (pad_w - pad_w // 2),
+                pad_d // 2 : x.shape[-3] - (pad_d - pad_d // 2),
+                pad_h // 2 : x.shape[-2] - (pad_h - pad_h // 2),
+                pad_w // 2 : x.shape[-1] - (pad_w - pad_w // 2),
             ]
 
         if self.activation_fn is not nn.Identity():
@@ -276,7 +280,7 @@ class _TransposeConvLayer(nn.Module):
         return x
 
 
-class _ConvGRULayer(nn.Module):
+class _ConvGRULayer(nn.Layer):
     """Convolutional GRU layer
 
     Parameters
@@ -287,7 +291,7 @@ class _ConvGRULayer(nn.Module):
         Hidden layer features/channels
     dimension : int
         Spatial dimension of the input
-    activation_fn : nn.Module, optional
+    activation_fn : nn.Layer, optional
         Activation Function to use, by default nn.ReLU()
     """
 
@@ -296,7 +300,7 @@ class _ConvGRULayer(nn.Module):
         in_features: int,
         hidden_size: int,
         dimension: int,
-        activation_fn: nn.Module = nn.ReLU(),
+        activation_fn: nn.Layer = nn.ReLU(),
     ) -> None:
         super().__init__()
         self.in_features = in_features
@@ -322,20 +326,22 @@ class _ConvGRULayer(nn.Module):
         return self.activation_fn(x)
 
     def forward(self, x: Tensor, hidden: Tensor) -> Tensor:
-        concat = torch.cat((x, hidden), dim=1)
+        concat = paddle.concat((x, hidden), axis=1)
         conv_concat = self.conv_1(concat)
-        conv_r, conv_z = torch.split(conv_concat, self.hidden_size, 1)
+        conv_r, conv_z = paddle.split(conv_concat, self.hidden_size, 1)
 
-        reset_gate = torch.special.expit(conv_r)
-        update_gate = torch.special.expit(conv_z)
-        concat = torch.cat((x, torch.mul(hidden, reset_gate)), dim=1)
+        reset_gate = expit(conv_r)
+        update_gate = expit(conv_z)
+        concat = paddle.concat((x, paddle.multiply(hidden, reset_gate)), axis=1)
         n = self.exec_activation_fn(self.conv_2(concat))
-        h_next = torch.mul((1 - update_gate), n) + torch.mul(update_gate, hidden)
+        h_next = paddle.multiply((1 - update_gate), n) + paddle.multiply(
+            update_gate, hidden
+        )
 
         return h_next
 
 
-class _ConvResidualBlock(nn.Module):
+class _ConvResidualBlock(nn.Layer):
     """Convolutional ResNet Block
 
     Parameters
@@ -354,7 +360,7 @@ class _ConvResidualBlock(nn.Module):
         Layer Normalization, by default False
     begin_activation_fn : bool, optional
         Whether to use activation function in the beginning, by default True
-    activation_fn : nn.Module, optional
+    activation_fn : nn.Layer, optional
         Activation function to use, by default nn.ReLU()
 
     Raises
@@ -372,7 +378,7 @@ class _ConvResidualBlock(nn.Module):
         gated: bool = False,
         layer_normalization: bool = False,
         begin_activation_fn: bool = True,
-        activation_fn: nn.Module = nn.ReLU(),
+        activation_fn: nn.Layer = nn.ReLU(),
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
@@ -429,7 +435,7 @@ class _ConvResidualBlock(nn.Module):
 
         if self.begin_activation_fn:
             if self.layer_normalization:
-                layer_norm = nn.LayerNorm(x.size()[1:], elementwise_affine=False)
+                layer_norm = nn.LayerNorm(x.shape[1:], elementwise_affine=False)
                 x = layer_norm(x)
             x = self.exec_activation_fn(x)
 
@@ -438,7 +444,7 @@ class _ConvResidualBlock(nn.Module):
 
         # add layer normalization
         if self.layer_normalization:
-            layer_norm = nn.LayerNorm(x.size()[1:], elementwise_affine=False)
+            layer_norm = nn.LayerNorm(x.shape[1:], elementwise_affine=False)
             x = layer_norm(x)
 
         # second activation
@@ -446,35 +452,35 @@ class _ConvResidualBlock(nn.Module):
         # second convolutional layer
         x = self.conv_2(x)
         if self.gated:
-            x_1, x_2 = torch.split(x, x.size(1) // 2, 1)
-            x = x_1 * torch.special.expit(x_2)
+            x_1, x_2 = paddle.split(x, x.shape[1] // 2, 1)
+            x = x_1 * expit(x_2)
 
         # possibly reshape skip connection
-        if orig_x.size(-1) > x.size(-1):  # Check if widths are same)
-            if len(orig_x.size()) - 2 == 1:
-                iw = orig_x.size()[-1:][0]
+        if orig_x.shape[-1] > x.shape[-1]:  # Check if widths are same)
+            if len(orig_x.shape) - 2 == 1:
+                iw = orig_x.shape[-1:][0]
                 pad_w = _get_same_padding(iw, 2, 2)
-                pool = torch.nn.AvgPool1d(
+                pool = paddle.nn.AvgPool1d(
                     2, 2, padding=pad_w // 2, count_include_pad=False
                 )
-            elif len(orig_x.size()) - 2 == 2:
-                ih, iw = orig_x.size()[-2:]
+            elif len(orig_x.shape) - 2 == 2:
+                ih, iw = orig_x.shape[-2:]
                 pad_h, pad_w = _get_same_padding(
                     ih,
                     2,
                     2,
                 ), _get_same_padding(iw, 2, 2)
-                pool = torch.nn.AvgPool2d(
+                pool = paddle.nn.AvgPool2d(
                     2, 2, padding=(pad_h // 2, pad_w // 2), count_include_pad=False
                 )
-            elif len(orig_x.size()) - 2 == 3:
-                _id, ih, iw = orig_x.size()[-3:]
+            elif len(orig_x.shape) - 2 == 3:
+                _id, ih, iw = orig_x.shape[-3:]
                 pad_d, pad_h, pad_w = (
                     _get_same_padding(_id, 2, 2),
                     _get_same_padding(ih, 2, 2),
                     _get_same_padding(iw, 2, 2),
                 )
-                pool = torch.nn.AvgPool3d(
+                pool = paddle.nn.AvgPool3D(
                     2,
                     2,
                     padding=(pad_d // 2, pad_h // 2, pad_w // 2),
@@ -485,11 +491,11 @@ class _ConvResidualBlock(nn.Module):
             orig_x = pool(orig_x)
 
         # possibly change the channels for skip connection
-        in_channels = int(orig_x.size(1))
+        in_channels = int(orig_x.shape[1])
         if self.out_channels > in_channels:
             orig_x = F.pad(
                 orig_x,
-                (len(orig_x.size()) - 2) * (0, 0)
+                (len(orig_x.shape) - 2) * (0, 0)
                 + (self.out_channels - self.in_channels, 0),
             )
         elif self.out_channels < in_channels:

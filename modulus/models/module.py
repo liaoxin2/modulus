@@ -282,7 +282,7 @@ class Module(paddle.nn.Layer):
         ----------
         file_name : str
             Checkpoint file name
-        map_location : Union[None, str, paddle.device], optional
+        map_location : Union[None, str, paddle.place], optional
             Map location for loading the model weights, by default None will use model's device
         strict: bool, optional
             whether to strictly enforce that the keys in state_dict match, by default True
@@ -310,7 +310,7 @@ class Module(paddle.nn.Layer):
             Module._check_checkpoint(local_path)
 
             # Load the model weights
-            # device = map_location if map_location is not None else self.device
+            # device = map_location if map_location is not None else self.place
             model_dict = paddle.load(local_path.joinpath("model.pt"))
             self.set_state_dict(model_dict, strict=strict)
 
@@ -426,7 +426,7 @@ class Module(paddle.nn.Layer):
 
         Returns
         -------
-        paddle.device
+        paddle.place
             PyTorch device
         """
         return self.device_buffer.place

@@ -17,15 +17,16 @@
 import math
 from typing import List, Optional, Tuple
 
-import torch
-import torch.fft
-import torch.onnx
-from torch import Tensor
-from torch.autograd import Function
+import paddle
+import paddle.fft
+
+# import paddle.onnx
+from paddle import Tensor
+from paddle.autograd import Function
 
 # Note 1: for DFT operators, the less verbose way of registering an operator is via
 # `register_custom_op_symbolic`. However, it does not currently work due to
-# torch.fft.rfft* functions returning Complex type which is not yet supported in ONNX.
+# paddle.fft.rfft* functions returning Complex type which is not yet supported in ONNX.
 
 # Note 2:
 # - current ONNX Contrib implementation does not support configurable normalization, so
@@ -60,10 +61,10 @@ def rfft(
 
     Note
     ----
-    The function is equivalent to `torch.fft.rfft` when not running in ONNX export mode
+    The function is equivalent to `paddle.fft.rfft` when not running in ONNX export mode
     """
-    if not torch.onnx.is_in_onnx_export():
-        return torch.fft.rfft(input, n=n, dim=dim, norm=norm)
+    # if not paddle.onnx.is_in_onnx_export():
+    #     return paddle.fft.rfft(input, n=n, axis=dim, norm=norm)
 
     if not isinstance(dim, int):
         raise TypeError()
@@ -92,10 +93,10 @@ def rfft2(
 
     Note
     ----
-    The function is equivalent to `torch.fft.rfft2` when not running in ONNX export mode
+    The function is equivalent to `paddle.fft.rfft2` when not running in ONNX export mode
     """
-    if not torch.onnx.is_in_onnx_export():
-        return torch.fft.rfft2(input, s=s, dim=dim, norm=norm)
+    # if not paddle.onnx.is_in_onnx_export():
+    #     return paddle.fft.rfft2(input, s=s, axis=dim, norm=norm)
 
     if not (isinstance(dim, tuple) and len(dim) == 2):
         raise ValueError()
@@ -124,10 +125,10 @@ def irfft(
 
     Note
     ----
-    The function is equivalent to `torch.fft.irfft` when not running in ONNX export mode
+    The function is equivalent to `paddle.fft.irfft` when not running in ONNX export mode
     """
-    if not torch.onnx.is_in_onnx_export():
-        return torch.fft.irfft(input, n=n, dim=dim, norm=norm)
+    # if not paddle.onnx.is_in_onnx_export():
+    #     return paddle.fft.irfft(input, n=n, axis=dim, norm=norm)
 
     if not isinstance(dim, int):
         raise TypeError()
@@ -156,17 +157,17 @@ def irfft2(
 
     Note
     ----
-    The function is equivalent to `torch.fft.irfft2` when not running in ONNX export mode
+    The function is equivalent to `paddle.fft.irfft2` when not running in ONNX export mode
     """
-    if not torch.onnx.is_in_onnx_export():
-        return torch.fft.irfft2(input, s=s, dim=dim, norm=norm)
+    # if not paddle.onnx.is_in_onnx_export():
+    #     return paddle.fft.irfft2(input, s=s, axis=dim, norm=norm)
 
     if not (isinstance(dim, tuple) and len(dim) == 2):
         raise ValueError()
     return _irfft_onnx(input, s, dim, norm)
 
 
-def view_as_complex(input: Tensor) -> Tensor:
+def as_complex(input: Tensor) -> Tensor:
     """ONNX compatable method to view input as complex tensor
 
     Parameters
@@ -176,7 +177,7 @@ def view_as_complex(input: Tensor) -> Tensor:
 
     Note
     ----
-    The function is equivalent to `torch.view_as_complex` when not running in ONNX export mode
+    The function is equivalent to `paddle.as_complex` when not running in ONNX export mode
 
     Raises
     ------
@@ -184,12 +185,12 @@ def view_as_complex(input: Tensor) -> Tensor:
         If input tensor shape is not [...,2] during ONNX runtime where the last dimension
         denotes the real / imaginary tensors
     """
-    if not torch.onnx.is_in_onnx_export():
-        return torch.view_as_complex(input)
+    # if not paddle.onnx.is_in_onnx_export():
+    #     return paddle.as_complex(input)
 
     # Just return the input unchanged - during ONNX export
     # there will be no complex type.
-    if input.size(-1) != 2:
+    if input.shape[-1] != 2:
         raise ValueError
     return input
 
@@ -212,12 +213,12 @@ def real(input: Tensor) -> Tensor:
         If input tensor shape is not [...,2] during ONNX runtime where the last dimension
         denotes the real / imaginary tensors
     """
-    if not torch.onnx.is_in_onnx_export():
-        return input.real
+    # if not paddle.onnx.is_in_onnx_export():
+    #     return input.real
 
     # There is no complex type during ONNX export, so assuming
-    # complex numbers are represented as if after `view_as_real`.
-    if input.size(-1) != 2:
+    # complex numbers are represented as if after `as_real`.
+    if input.shape[-1] != 2:
         raise ValueError()
     return input[..., 0]
 
@@ -240,13 +241,13 @@ def imag(input: Tensor) -> Tensor:
         If input tensor shape is not [...,2] during ONNX runtime  where the last dimension
         denotes the real / imaginary tensors
     """
-    if not torch.onnx.is_in_onnx_export():
-        return input.imag
+    # if not paddle.onnx.is_in_onnx_export():
+    #     return input.imag
 
     # There is no complex type during ONNX export, so assuming
-    # complex numbers are represented as if after `view_as_real`.
-    if input.size(-1) != 2:
-        raise ValueError(input.size(-1))
+    # complex numbers are represented as if after `as_real`.
+    if input.shape[-1] != 2:
+        raise ValueError(input.shape[-1])
     return input[..., 1]
 
 
@@ -254,7 +255,7 @@ def _rfft_onnx(
     input: Tensor, s: Optional[Tuple[Optional[int]]], dim: Tuple[int], norm: str
 ) -> Tensor:
     if s is not None:
-        _check_padding_rfft(s, dim, input.size())
+        _check_padding_rfft(s, dim, input.shape)
 
     ndim = len(dim)
     if ndim not in [1, 2]:
@@ -267,15 +268,15 @@ def _rfft_onnx(
         # Add a dimension to account for complex output.
         perm_out.append(len(perm_out))
         # Transpose -> RFFT -> Transpose (inverse).
-        input = input.permute(perm_in)
+        input = input.transpose(perm_in)
 
     rfft_func = OnnxRfft if ndim == 1 else OnnxRfft2
     output = rfft_func.apply(input)
 
-    output = _scale_output_forward(output, norm, input.size(), ndim)
+    output = _scale_output_forward(output, norm, input.shape, ndim)
 
     if perm:
-        output = output.permute(perm_out)
+        output = output.transpose(perm_out)
 
     return output
 
@@ -284,13 +285,13 @@ def _irfft_onnx(
     input: Tensor, s: Optional[Tuple[Optional[int]]], dim: Tuple[int], norm: str
 ) -> Tensor:
     if s is not None:
-        _check_padding_irfft(s, dim, input.size())
+        _check_padding_irfft(s, dim, input.shape)
 
     ndim = len(dim)
     if ndim not in [1, 2]:
         raise ValueError(ndim)
 
-    # Whether to permute axes when DFT axis is not the last.
+    # Whether to transpose axes when DFT axis is not the last.
     perm = not _is_last_dims(dim, input.ndim)
 
     if perm:
@@ -299,20 +300,20 @@ def _irfft_onnx(
         # Add a dimension to account for complex input.
         perm_in.append(len(perm_in))
         # Transpose -> IRFFT -> Transpose (inverse).
-        input = input.permute(perm_in)
+        input = input.transpose(perm_in)
 
     irfft_func = OnnxIrfft if ndim == 1 else OnnxIrfft2
     output = irfft_func.apply(input)
 
-    output = _scale_output_backward(output, norm, input.size(), ndim)
+    output = _scale_output_backward(output, norm, input.shape, ndim)
 
     if perm:
-        output = output.permute(perm_out)
+        output = output.transpose(perm_out)
 
     return output
 
 
-def _contrib_rfft(g: torch.Graph, input: torch.Value, ndim: int) -> torch.Value:
+def _contrib_rfft(g: paddle.Graph, input: paddle.Value, ndim: int) -> paddle.Value:
     if ndim not in [1, 2]:
         raise ValueError(ndim)
 
@@ -328,7 +329,7 @@ def _contrib_rfft(g: torch.Graph, input: torch.Value, ndim: int) -> torch.Value:
     return output
 
 
-def _contrib_irfft(g: torch.Graph, input: torch.Value, ndim: int) -> torch.Value:
+def _contrib_irfft(g: paddle.Graph, input: paddle.Value, ndim: int) -> paddle.Value:
     if ndim not in [1, 2]:
         raise ValueError(ndim)
 
@@ -399,7 +400,7 @@ def _check_padding_irfft(
 
 
 def _create_axes_perm(ndim: int, dims: Tuple[int]) -> Tuple[List[int], List[int]]:
-    """Creates permuted axes indices for RFFT/IRFFT operators."""
+    """Creates transposed axes indices for RFFT/IRFFT operators."""
     perm_in = list(range(ndim))
     perm_out = list(perm_in)
     # Move indices to the right to make 'dims' as innermost dimensions.
@@ -413,7 +414,7 @@ def _create_axes_perm(ndim: int, dims: Tuple[int]) -> Tuple[List[int], List[int]
 
 
 def _scale_output_forward(
-    output: Tensor, norm: str, sizes: torch.Size, ndim: int
+    output: Tensor, norm: str, sizes: paddle.shape, ndim: int
 ) -> Tensor:
     """Scales the RFFT output according to norm parameter."""
 
@@ -426,14 +427,14 @@ def _scale_output_forward(
         # Assuming DFT dimensions are the last. This is required by the current Contrib ops,
         # so the axes permutation of the input is done accordingly.
         dft_size = math.prod(sizes[-ndim:]).float()
-        denom = torch.sqrt(dft_size) if norm == "ortho" else dft_size
+        denom = paddle.sqrt(dft_size) if norm == "ortho" else dft_size
         output = output / denom
 
     return output
 
 
 def _scale_output_backward(
-    output: Tensor, norm: str, sizes: torch.Size, ndim: int
+    output: Tensor, norm: str, sizes: paddle.shape, ndim: int
 ) -> Tensor:
     """Scales the IRFFT output according to norm parameter."""
 
@@ -457,7 +458,7 @@ def _scale_output_backward(
         dft_size *= 2 * (sizes[-2] - 1)
         dft_size = dft_size.float()
         # Since cuFFT scales by 1/dft_size, replace this scale with appropriate one.
-        scale = dft_size if norm == "forward" else torch.sqrt(dft_size)
+        scale = dft_size if norm == "forward" else paddle.sqrt(dft_size)
         output = scale * output
 
     return output
@@ -473,16 +474,16 @@ class OnnxRfft(Function):
 
     @staticmethod
     def forward(ctx, input: Tensor) -> Tensor:
-        if not torch.onnx.is_in_onnx_export():
-            raise ValueError("Must be called only during ONNX export.")
+        # if not paddle.onnx.is_in_onnx_export():
+        #     raise ValueError("Must be called only during ONNX export.")
 
         # We need to mimic the behavior of Contrib RFFT which assumes
         # DFT of last dim and no normalization.
-        y = torch.fft.rfft(input, dim=-1, norm="backward")
-        return torch.view_as_real(y)
+        y = paddle.fft.rfft(input, axis=-1, norm="backward")
+        return paddle.as_real(y)
 
     @staticmethod
-    def symbolic(g: torch.Graph, input: torch.Value) -> torch.Value:
+    def symbolic(g: paddle.Graph, input: paddle.Value) -> paddle.Value:
         """Symbolic representation for onnx graph"""
         return _contrib_rfft(g, input, ndim=1)
 
@@ -497,16 +498,16 @@ class OnnxRfft2(Function):
 
     @staticmethod
     def forward(ctx, input: Tensor) -> Tensor:
-        if not torch.onnx.is_in_onnx_export():
-            raise AssertionError("Must be called only during ONNX export.")
+        # if not paddle.onnx.is_in_onnx_export():
+        #     raise AssertionError("Must be called only during ONNX export.")
 
         # We need to mimic the behavior of Contrib RFFT which assumes
         # DFT of last dims and no normalization.
-        y = torch.fft.rfft2(input, dim=(-2, -1), norm="backward")
-        return torch.view_as_real(y)
+        y = paddle.fft.rfft2(input, axis=(-2, -1), norm="backward")
+        return paddle.as_real(y)
 
     @staticmethod
-    def symbolic(g: torch.Graph, input: torch.Value) -> torch.Value:
+    def symbolic(g: paddle.Graph, input: paddle.Value) -> paddle.Value:
         """Symbolic representation for onnx graph"""
         return _contrib_rfft(g, input, ndim=2)
 
@@ -521,15 +522,15 @@ class OnnxIrfft(Function):
 
     @staticmethod
     def forward(ctx, input: Tensor) -> Tensor:
-        if not torch.onnx.is_in_onnx_export():
-            raise ValueError("Must be called only during ONNX export.")
+        # if not paddle.onnx.is_in_onnx_export():
+        #     raise ValueError("Must be called only during ONNX export.")
 
         # We need to mimic the behavior of Contrib IRFFT which assumes
         # DFT of last dim and 1/n normalization.
-        return torch.fft.irfft(torch.view_as_complex(input), dim=-1, norm="backward")
+        return paddle.fft.irfft(paddle.as_complex(input), axis=-1, norm="backward")
 
     @staticmethod
-    def symbolic(g: torch.Graph, input: torch.Value) -> torch.Value:
+    def symbolic(g: paddle.Graph, input: paddle.Value) -> paddle.Value:
         """Symbolic representation for onnx graph"""
         return _contrib_irfft(g, input, ndim=1)
 
@@ -544,16 +545,16 @@ class OnnxIrfft2(Function):
 
     @staticmethod
     def forward(ctx, input: Tensor) -> Tensor:
-        if not torch.onnx.is_in_onnx_export():
-            raise AssertionError("Must be called only during ONNX export.")
+        # if not paddle.onnx.is_in_onnx_export():
+        #     raise AssertionError("Must be called only during ONNX export.")
 
         # We need to mimic the behavior of Contrib IRFFT which assumes
         # DFT of last dims and 1/n normalization.
-        return torch.fft.irfft2(
-            torch.view_as_complex(input), dim=(-2, -1), norm="backward"
+        return paddle.fft.irfft2(
+            paddle.as_complex(input), axis=(-2, -1), norm="backward"
         )
 
     @staticmethod
-    def symbolic(g: torch.Graph, input: torch.Value) -> torch.Value:
+    def symbolic(g: paddle.Graph, input: paddle.Value) -> paddle.Value:
         """Symbolic representation for onnx graph"""
         return _contrib_irfft(g, input, ndim=2)

@@ -14,11 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-from torch import nn
+import paddle
+from paddle import nn
 
 
-class Mlp(nn.Module):
+class Mlp(nn.Layer):
     def __init__(
         self,
         in_features,
@@ -35,7 +35,7 @@ class Mlp(nn.Module):
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: paddle.Tensor):
         x = self.fc1(x)
         x = self.act(x)
         x = self.drop(x)

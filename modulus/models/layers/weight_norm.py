@@ -14,16 +14,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import paddle
+import paddle.nn as nn
+import paddle.nn.functional as F
 
 import modulus  # noqa: F401 for docs
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
-class WeightNormLinear(nn.Module):
+class WeightNormLinear(nn.Layer):
     """Weight Norm Layer for 1D Tensors
 
     Parameters
@@ -38,35 +38,48 @@ class WeightNormLinear(nn.Module):
     Example
     -------
     >>> wnorm = modulus.models.layers.WeightNormLinear(2,4)
-    >>> input = torch.rand(2,2)
+    >>> input = paddle.rand(2,2)
     >>> output = wnorm(input)
     >>> output.size()
-    torch.Size([2, 4])
+    paddle.Size([2, 4])
     """
 
     def __init__(self, in_features: int, out_features: int, bias: bool = True) -> None:
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
-        self.weight = nn.Parameter(torch.empty((out_features, in_features)))
-        self.weight_g = nn.Parameter(torch.empty((out_features, 1)))
+        self.weight = self.create_parameter(
+            (out_features, in_features),
+            default_initializer=nn.initializer.Assign(
+                paddle.empty((out_features, in_features))
+            ),
+        )
+        self.weight_g = self.create_parameter(
+            (out_features, 1),
+            default_initializer=nn.initializer.Assign(paddle.empty((out_features, 1))),
+        )
         if bias:
-            self.bias = nn.Parameter(torch.empty(out_features))
+            self.bias = self.create_parameter(
+                (out_features,),
+                default_initializer=nn.initializer.Assign(
+                    paddle.empty((out_features,))
+                ),
+            )
         else:
             self.register_parameter("bias", None)
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
         """Reset normalization weights"""
-        nn.init.xavier_uniform_(self.weight)
-        nn.init.constant_(self.weight_g, 1.0)
+        nn.initializer.XavierUniform(self.weight)
+        nn.initializer.Constant(1.0)(self.weight_g)
         if self.bias is not None:
-            nn.init.constant_(self.bias, 0.0)
+            nn.initializer.Constant(0.0)(self.bias)
 
     def forward(self, input: Tensor) -> Tensor:
-        norm = self.weight.norm(dim=1, p=2, keepdim=True)
+        norm = self.weight.norm(axis=1, p=2, keepdim=True)
         weight = self.weight_g * self.weight / norm
-        return F.linear(input, weight, self.bias)
+        return F.linear(input, weight.T, self.bias)
 
     def extra_repr(self) -> str:
         """Print information about weight norm"""

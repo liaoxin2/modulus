@@ -39,8 +39,8 @@ Details on the HEALPix can be found at https://iopscience.iop.org/article/10.108
 
 import sys
 
-import torch
-import torch as th
+import paddle
+import paddle as pd
 
 sys.path.append("/home/disk/quicksilver/nacc/dlesm/HealPixPad")
 have_healpixpad = True
@@ -51,7 +51,7 @@ except ImportError:
     have_healpixpad = False
 
 
-class HEALPixFoldFaces(th.nn.Module):
+class HEALPixFoldFaces(pd.nn.Layer):
     """Class that folds the faces of a HealPIX tensor"""
 
     def __init__(self, enable_nhwc: bool = False):
@@ -64,32 +64,32 @@ class HEALPixFoldFaces(th.nn.Module):
         super().__init__()
         self.enable_nhwc = enable_nhwc
 
-    def forward(self, tensor: torch.Tensor) -> torch.Tensor:
+    def forward(self, tensor: paddle.Tensor) -> paddle.Tensor:
         """
         Forward pass that folds a HEALPix tensor
         [B, F, C, H, W] -> [B*F, C, H, W]
 
         Parameters
         ----------
-        tensor: torch.Tensor
+        tensor: paddle.Tensor
             The tensor to fold
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             the folded tensor
 
         """
         N, F, C, H, W = tensor.shape
-        tensor = torch.reshape(tensor, shape=(N * F, C, H, W))
+        tensor = paddle.reshape(tensor, shape=(N * F, C, H, W))
 
-        if self.enable_nhwc:
-            tensor = tensor.to(memory_format=torch.channels_last)
+        # if self.enable_nhwc:
+        #     tensor = tensor.to(memory_format=paddle.channels_last)
 
         return tensor
 
 
-class HEALPixUnfoldFaces(th.nn.Module):
+class HEALPixUnfoldFaces(pd.nn.Layer):
     """Class that unfolds the faces of a HealPIX tensor"""
 
     def __init__(self, num_faces=12, enable_nhwc=False):
@@ -105,29 +105,29 @@ class HEALPixUnfoldFaces(th.nn.Module):
         self.num_faces = num_faces
         self.enable_nhwc = enable_nhwc
 
-    def forward(self, tensor: torch.Tensor) -> torch.Tensor:
+    def forward(self, tensor: paddle.Tensor) -> paddle.Tensor:
         """
         Forward pass that unfolds a HEALPix tensor
         [B*F, C, H, W] -> [B, F, C, H, W]
 
         Parameters
         ----------
-        tensor: torch.Tensor
+        tensor: paddle.Tensor
             The tensor to unfold
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The unfolded tensor
 
         """
         NF, C, H, W = tensor.shape
-        tensor = torch.reshape(tensor, shape=(-1, self.num_faces, C, H, W))
+        tensor = paddle.reshape(tensor, shape=(-1, self.num_faces, C, H, W))
 
         return tensor
 
 
-class HEALPixPaddingv2(th.nn.Module):
+class HEALPixPaddingv2(pd.nn.Layer):
     """
     Padding layer for data on a HEALPix sphere. This version uses a faster method to calculate the padding.
     The requirements for using this layer are as follows:
@@ -160,26 +160,26 @@ class HEALPixPaddingv2(th.nn.Module):
 
         Parmaters
         ---------
-        data: torch.Tensor
+        data: paddle.Tensor
             The input tensor of shape [..., F, H, W] where each face is to be padded in its HPX context
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The padded tensor where each face's height and width are increased by 2*p
         """
-        torch.cuda.nvtx.range_push("HEALPixPaddingv2:forward")
+        paddle.framework.core.nvprof_nvtx_push("HEALPixPaddingv2:forward")
 
         x = self.unfold(x)
         xp = self.padding(x)
         xp = self.fold(xp)
 
-        torch.cuda.nvtx.range_pop()
+        paddle.framework.core.nvprof_nvtx_pop()
 
         return xp
 
 
-class HEALPixPadding(th.nn.Module):
+class HEALPixPadding(pd.nn.Layer):
     """
     Padding layer for data on a HEALPix sphere. The requirements for using this layer are as follows:
     - The last three dimensions are (face=12, height, width)
@@ -211,30 +211,30 @@ class HEALPixPadding(th.nn.Module):
         self.fold = HEALPixFoldFaces(enable_nhwc=self.enable_nhwc)
         self.unfold = HEALPixUnfoldFaces(num_faces=12, enable_nhwc=self.enable_nhwc)
 
-    def forward(self, data: th.Tensor) -> th.Tensor:
+    def forward(self, data: pd.Tensor) -> pd.Tensor:
         """
         Pad each face consistently with its according neighbors in the HEALPix (see ordering and neighborhoods above).
         Assumes the Tensor is folded
 
         Parmaters
         ---------
-        data: torch.Tensor
+        data: paddle.Tensor
             The input tensor of shape [..., F, H, W] where each face is to be padded in its HPX context
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The padded tensor where each face's height and width are increased by 2*p
         """
-        torch.cuda.nvtx.range_push("HEALPixPadding:forward")
+        paddle.framework.core.nvprof_nvtx_push("HEALPixPadding:forward")
 
         # unfold faces from batch dim
         data = self.unfold(data)
 
         # Extract the twelve faces (as views of the original tensors)
         f00, f01, f02, f03, f04, f05, f06, f07, f08, f09, f10, f11 = [
-            torch.squeeze(x, dim=1)
-            for x in th.split(tensor=data, split_size_or_sections=1, dim=1)
+            paddle.squeeze(x, dim=1)
+            for x in pd.split(tensor=data, split_size_or_sections=1, dim=1)
         ]
 
         # Assemble the four padded faces on the northern hemisphere
@@ -311,66 +311,66 @@ class HEALPixPadding(th.nn.Module):
             c=f11, t=f04, tl=f03, lft=f07, bl=f10, b=f10, br=f09, rgt=f08, tr=f08
         )
 
-        res = th.stack(
+        res = pd.stack(
             (p00, p01, p02, p03, p04, p05, p06, p07, p08, p09, p10, p11), dim=1
         )
 
         # fold faces into batch dim
         res = self.fold(res)
 
-        torch.cuda.nvtx.range_pop()
+        paddle.framework.core.nvprof_nvtx_pop()
 
         return res
 
     def pn(
         self,
-        c: th.Tensor,
-        t: th.Tensor,
-        tl: th.Tensor,
-        lft: th.Tensor,
-        bl: th.Tensor,
-        b: th.Tensor,
-        br: th.Tensor,
-        rgt: th.Tensor,
-        tr: th.Tensor,
-    ) -> th.Tensor:
+        c: pd.Tensor,
+        t: pd.Tensor,
+        tl: pd.Tensor,
+        lft: pd.Tensor,
+        bl: pd.Tensor,
+        b: pd.Tensor,
+        br: pd.Tensor,
+        rgt: pd.Tensor,
+        tr: pd.Tensor,
+    ) -> pd.Tensor:
         """
         Applies padding to a northern hemisphere face c under consideration of its given neighbors.
 
         Parameters
         ----------
-        c: torch.Tensor
+        c: paddle.Tensor
             The central face and tensor that is subject for padding
-        t: torch.Tensor
+        t: paddle.Tensor
             The top neighboring face tensor
-        tl: torch.Tensor
+        tl: paddle.Tensor
             The top left neighboring face tensor
-        lft: torch.Tensor
+        lft: paddle.Tensor
             The left neighboring face tensor
-        bl: torch.Tensor
+        bl: paddle.Tensor
             The bottom left neighboring face tensor
-        b: torch.Tensor
+        b: paddle.Tensor
             The bottom neighboring face tensor
-        br: torch.Tensor
+        br: paddle.Tensor
             The bottom right neighboring face tensor
-        rgt: torch.Tensor
+        rgt: paddle.Tensor
             The right neighboring face tensor
-        tr: torch.Tensor
+        tr: paddle.Tensor
             The top right neighboring face  tensor
 
         Returns
         -------
-        torch.Tensor:
+        paddle.Tensor:
             The padded tensor p
         """
         p = self.p  # Padding size
         d = self.d  # Dimensions for rotations
 
         # Start with top and bottom to extend the height of the c tensor
-        c = th.cat((t.rot90(1, d)[..., -p:, :], c, b[..., :p, :]), dim=-2)
+        c = pd.cat((t.rot90(1, d)[..., -p:, :], c, b[..., :p, :]), dim=-2)
 
         # Construct the left and right pads including the corner faces
-        left = th.cat(
+        left = pd.cat(
             (
                 tl.rot90(2, d)[..., -p:, -p:],
                 lft.rot90(-1, d)[..., -p:],
@@ -378,135 +378,135 @@ class HEALPixPadding(th.nn.Module):
             ),
             dim=-2,
         )
-        right = th.cat((tr[..., -p:, :p], rgt[..., :p], br[..., :p, :p]), dim=-2)
+        right = pd.cat((tr[..., -p:, :p], rgt[..., :p], br[..., :p, :p]), dim=-2)
 
-        return th.cat((left, c, right), dim=-1)
+        return pd.cat((left, c, right), dim=-1)
 
     def pe(
         self,
-        c: th.Tensor,
-        t: th.Tensor,
-        tl: th.Tensor,
-        lft: th.Tensor,
-        bl: th.Tensor,
-        b: th.Tensor,
-        br: th.Tensor,
-        rgt: th.Tensor,
-        tr: th.Tensor,
-    ) -> th.Tensor:
+        c: pd.Tensor,
+        t: pd.Tensor,
+        tl: pd.Tensor,
+        lft: pd.Tensor,
+        bl: pd.Tensor,
+        b: pd.Tensor,
+        br: pd.Tensor,
+        rgt: pd.Tensor,
+        tr: pd.Tensor,
+    ) -> pd.Tensor:
         """
         Applies padding to an equatorial face c under consideration of its given neighbors.
 
         Parameters
         ----------
-        c: torch.Tensor
+        c: paddle.Tensor
             The central face and tensor that is subject for padding
-        t: torch.Tensor
+        t: paddle.Tensor
             The top neighboring face tensor
-        tl: torch.Tensor
+        tl: paddle.Tensor
             The top left neighboring face tensor
-        lft: torch.Tensor
+        lft: paddle.Tensor
             The left neighboring face tensor
-        bl: torch.Tensor
+        bl: paddle.Tensor
             The bottom left neighboring face tensor
-        b: torch.Tensor
+        b: paddle.Tensor
             The bottom neighboring face tensor
-        br: torch.Tensor
+        br: paddle.Tensor
             The bottom right neighboring face tensor
-        rgt: torch.Tensor
+        rgt: paddle.Tensor
             The right neighboring face tensor
-        tr: torch.Tensor
+        tr: paddle.Tensor
             The top right neighboring face  tensor
 
         Returns
         -------
-        torch.Tensor:
+        paddle.Tensor:
             The padded tensor p
         """
         p = self.p  # Padding size
 
         # Start with top and bottom to extend the height of the c tensor
-        c = th.cat((t[..., -p:, :], c, b[..., :p, :]), dim=-2)
+        c = pd.cat((t[..., -p:, :], c, b[..., :p, :]), dim=-2)
 
         # Construct the left and right pads including the corner faces
-        left = th.cat((tl[..., -p:, -p:], lft[..., -p:], bl[..., :p, -p:]), dim=-2)
-        right = th.cat((tr[..., -p:, :p], rgt[..., :p], br[..., :p, :p]), dim=-2)
+        left = pd.cat((tl[..., -p:, -p:], lft[..., -p:], bl[..., :p, -p:]), dim=-2)
+        right = pd.cat((tr[..., -p:, :p], rgt[..., :p], br[..., :p, :p]), dim=-2)
 
-        return th.cat((left, c, right), dim=-1)
+        return pd.cat((left, c, right), dim=-1)
 
     def ps(
         self,
-        c: th.Tensor,
-        t: th.Tensor,
-        tl: th.Tensor,
-        lft: th.Tensor,
-        bl: th.Tensor,
-        b: th.Tensor,
-        br: th.Tensor,
-        rgt: th.Tensor,
-        tr: th.Tensor,
-    ) -> th.Tensor:
+        c: pd.Tensor,
+        t: pd.Tensor,
+        tl: pd.Tensor,
+        lft: pd.Tensor,
+        bl: pd.Tensor,
+        b: pd.Tensor,
+        br: pd.Tensor,
+        rgt: pd.Tensor,
+        tr: pd.Tensor,
+    ) -> pd.Tensor:
         """
         Applies padding to a southern hemisphere face c under consideration of its given neighbors.
 
         Parameters
         ----------
-        c: torch.Tensor
+        c: paddle.Tensor
             The central face and tensor that is subject for padding
-        t: torch.Tensor
+        t: paddle.Tensor
             The top neighboring face tensor
-        tl: torch.Tensor
+        tl: paddle.Tensor
             The top left neighboring face tensor
-        lft: torch.Tensor
+        lft: paddle.Tensor
             The left neighboring face tensor
-        bl: torch.Tensor
+        bl: paddle.Tensor
             The bottom left neighboring face tensor
-        b: torch.Tensor
+        b: paddle.Tensor
             The bottom neighboring face tensor
-        br: torch.Tensor
+        br: paddle.Tensor
             The bottom right neighboring face tensor
-        rgt: torch.Tensor
+        rgt: paddle.Tensor
             The right neighboring face tensor
-        tr: torch.Tensor
+        tr: paddle.Tensor
             The top right neighboring face  tensor
 
         Returns
         -------
-        torch.Tensor:
+        paddle.Tensor:
             The padded tensor p
         """
         p = self.p  # Padding size
         d = self.d  # Dimensions for rotations
 
         # Start with top and bottom to extend the height of the c tensor
-        c = th.cat((t[..., -p:, :], c, b.rot90(1, d)[..., :p, :]), dim=-2)
+        c = pd.cat((t[..., -p:, :], c, b.rot90(1, d)[..., :p, :]), dim=-2)
 
         # Construct the left and right pads including the corner faces
-        left = th.cat((tl[..., -p:, -p:], lft[..., -p:], bl[..., :p, -p:]), dim=-2)
-        right = th.cat(
+        left = pd.cat((tl[..., -p:, -p:], lft[..., -p:], bl[..., :p, -p:]), dim=-2)
+        right = pd.cat(
             (tr[..., -p:, :p], rgt.rot90(-1, d)[..., :p], br.rot90(2, d)[..., :p, :p]),
             dim=-2,
         )
 
-        return th.cat((left, c, right), dim=-1)
+        return pd.cat((left, c, right), dim=-1)
 
-    def tl(self, top: th.Tensor, lft: th.Tensor) -> th.Tensor:
+    def tl(self, top: pd.Tensor, lft: pd.Tensor) -> pd.Tensor:
         """
         Assembles the top left corner of a center face in the cases where no according top left face is defined on the
         HPX.
 
         Parameters
         ----------
-        top: torch.Tensor
+        top: paddle.Tensor
             The face above the center face
-        lft: torch.Tensor
+        lft: paddle.Tensor
             The face left of the center face
 
         Returns
         -------
             The assembled top left corner (only the sub-part that is required for padding)
         """
-        ret = th.zeros_like(top)[..., : self.p, : self.p]  # super ugly but super fast
+        ret = pd.zeros_like(top)[..., : self.p, : self.p]  # super ugly but super fast
 
         # Bottom left point
         ret[..., -1, -1] = 0.5 * top[..., -1, 0] + 0.5 * lft[..., 0, -1]
@@ -525,24 +525,24 @@ class HEALPixPadding(th.nn.Module):
 
         return ret
 
-    def br(self, b: th.Tensor, r: th.Tensor) -> th.Tensor:
+    def br(self, b: pd.Tensor, r: pd.Tensor) -> pd.Tensor:
         """
         Assembles the bottom right corner of a center face in the cases where no according bottom right face is defined
         on the HPX.
 
         Parameters
         ----------
-        b: torch.Tensor
+        b: paddle.Tensor
             The face below the center face
-        r: torch.Tensor
+        r: paddle.Tensor
             The face right of the center face
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The assembled bottom right corner (only the sub-part that is required for padding)
         """
-        ret = th.zeros_like(b)[..., : self.p, : self.p]
+        ret = pd.zeros_like(b)[..., : self.p, : self.p]
 
         # Top left point
         ret[..., 0, 0] = 0.5 * b[..., 0, -1] + 0.5 * r[..., -1, 0]
@@ -556,8 +556,8 @@ class HEALPixPadding(th.nn.Module):
         return ret
 
 
-class HEALPixLayer(th.nn.Module):
-    """Pytorch module for applying any base torch Module on a HEALPix tensor. Expects all input/output tensors to have a
+class HEALPixLayer(pd.nn.Layer):
+    """Pytorch module for applying any base paddle Layer on a HEALPix tensor. Expects all input/output tensors to have a
     shape [..., 12, H, W], where 12 is the dimension of the faces.
     """
 
@@ -565,10 +565,10 @@ class HEALPixLayer(th.nn.Module):
         """
         Parameters
         ----------
-        layer: torch.nn.Module
-            Any torch layer function, e.g., th.nn.Conv2d
+        layer: paddle.nn.Layer
+            Any paddle layer function, e.g., pd.nn.Conv2D
         kwargs:
-            The arguments that are passed to the torch layer function, e.g., kernel_size
+            The arguments that are passed to the paddle layer function, e.g., kernel_size
         """
         super().__init__()
         layers = []
@@ -587,7 +587,7 @@ class HEALPixLayer(th.nn.Module):
 
         # Define a HEALPixPadding layer if the given layer is a convolution layer
         if (
-            layer.__bases__[0] is th.nn.modules.conv._ConvNd
+            layer.__bases__[0] is pd.nn.modules.conv._ConvNd
             and kwargs["kernel_size"] > 1
         ):
             kwargs["padding"] = 0  # Disable native padding
@@ -597,7 +597,7 @@ class HEALPixLayer(th.nn.Module):
             if (
                 enable_healpixpad
                 and have_healpixpad
-                and th.cuda.is_available()
+                and pd.cuda.is_available()
                 and not enable_nhwc
             ):  # pragma: no cover
                 # TODO: missing library, need to decide if we can get library
@@ -607,12 +607,12 @@ class HEALPixLayer(th.nn.Module):
                 layers.append(HEALPixPadding(padding=padding, enable_nhwc=enable_nhwc))
 
         layers.append(layer(**kwargs))
-        self.layers = th.nn.Sequential(*layers)
+        self.layers = pd.nn.Sequential(*layers)
 
-        if enable_nhwc:
-            self.layers = self.layers.to(memory_format=torch.channels_last)
+        # if enable_nhwc:
+        #     self.layers = self.layers.to(memory_format=paddle.channels_last)
 
-    def forward(self, x: th.Tensor) -> th.Tensor:
+    def forward(self, x: pd.Tensor) -> pd.Tensor:
         """
         Performs the forward pass using the defined layer function and the given data.
 

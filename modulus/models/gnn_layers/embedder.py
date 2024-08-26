@@ -16,13 +16,13 @@
 
 from typing import Tuple
 
-import torch.nn as nn
-from torch import Tensor
+import paddle.nn as nn
+from paddle import Tensor
 
 from .mesh_graph_mlp import MeshGraphMLP
 
 
-class GraphCastEncoderEmbedder(nn.Module):
+class GraphCastEncoderEmbedder(nn.Layer):
     """GraphCast feature embedder for gird node features, multimesh node features,
     grid2mesh edge features, and multimesh edge features.
 
@@ -40,8 +40,8 @@ class GraphCastEncoderEmbedder(nn.Module):
         Number of neurons in each hidden layer, by default 512
     hidden_layers : int, optional
         Number of hiddel layers, by default 1
-    activation_fn : nn.Module, optional
-        Type of activation function, by default nn.SiLU()
+    activation_fn : nn.Layer, optional
+        Type of activation function, by default nn.Silu()
     norm_type : str, optional
         Normalization type, by default "LayerNorm"
     recompute_activation : bool, optional
@@ -57,7 +57,7 @@ class GraphCastEncoderEmbedder(nn.Module):
         output_dim: int = 512,
         hidden_dim: int = 512,
         hidden_layers: int = 1,
-        activation_fn: nn.Module = nn.SiLU(),
+        activation_fn: nn.Layer = nn.Silu(),
         norm_type: str = "LayerNorm",
         recompute_activation: bool = False,
     ):
@@ -123,7 +123,7 @@ class GraphCastEncoderEmbedder(nn.Module):
         return grid_nfeat, mesh_nfeat, g2m_efeat, mesh_efeat
 
 
-class GraphCastDecoderEmbedder(nn.Module):
+class GraphCastDecoderEmbedder(nn.Layer):
     """GraphCast feature embedder for mesh2grid edge features
 
     Parameters
@@ -136,8 +136,8 @@ class GraphCastDecoderEmbedder(nn.Module):
         Number of neurons in each hidden layer, by default 512
     hidden_layers : int, optional
         Number of hiddel layers, by default 1
-    activation_fn : nn.Module, optional
-        Type of activation function, by default nn.SiLU()
+    activation_fn : nn.Layer, optional
+        Type of activation function, by default nn.Silu()
     norm_type : str, optional
         Normalization type ["TELayerNorm", "LayerNorm"].
         Use "TELayerNorm" for optimal performance. By default "LayerNorm".
@@ -152,7 +152,7 @@ class GraphCastDecoderEmbedder(nn.Module):
         output_dim: int = 512,
         hidden_dim: int = 512,
         hidden_layers: int = 1,
-        activation_fn: nn.Module = nn.SiLU(),
+        activation_fn: nn.Layer = nn.Silu(),
         norm_type: str = "LayerNorm",
         recompute_activation: bool = False,
     ):

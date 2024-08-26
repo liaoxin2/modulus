@@ -17,9 +17,9 @@
 import enum
 import math
 
-import torch
-import torch.nn as nn
-from torch import Tensor
+import paddle
+import paddle.nn as nn
+from paddle import Tensor
 
 
 class SirenLayerType(enum.Enum):
@@ -32,7 +32,7 @@ class SirenLayerType(enum.Enum):
     LAST = enum.auto()
 
 
-class SirenLayer(nn.Module):
+class SirenLayer(nn.Layer):
     """
     SiReN layer.
 
@@ -78,13 +78,13 @@ class SirenLayer(nn.Module):
             SirenLayerType.LAST: math.sqrt(6.0 / self.in_features),
         }
         weight_range = weight_ranges[self.layer_type]
-        nn.init.uniform_(self.linear.weight, -weight_range, weight_range)
+        nn.initializer.Uniform(-weight_range, weight_range)(self.linear.weight)
 
         k_sqrt = math.sqrt(1.0 / self.in_features)
-        nn.init.uniform_(self.linear.bias, -k_sqrt, k_sqrt)
+        nn.initializer.Uniform(-k_sqrt, k_sqrt)(self.linear.bias)
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.linear(x)
         if self.apply_activation:
-            x = torch.sin(self.omega_0 * x)
+            x = paddle.sin(self.omega_0 * x)
         return x

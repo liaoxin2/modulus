@@ -27,7 +27,7 @@ from modulus.models.gnn_layers.mesh_node_block import MeshNodeBlock
 from modulus.models.gnn_layers.utils import CuGraphCSC, set_checkpoint_fn
 
 
-class GraphCastProcessor(nn.Module):
+class GraphCastProcessor(nn.Layer):
     """Processor block used in GraphCast operating on a latent space
     represented by hierarchy of icosahedral meshes.
 
@@ -45,8 +45,8 @@ class GraphCastProcessor(nn.Module):
         number of neurons in each hidden layer, by default 512
     hidden_layers : int, optional
         number of hiddel layers, by default 1
-    activation_fn : nn.Module, optional
-        type of activation function, by default nn.SiLU()
+    activation_fn : nn.Layer, optional
+        type of activation function, by default nn.Silu()
     norm_type : str, optional
         Normalization type ["TELayerNorm", "LayerNorm"].
         Use "TELayerNorm" for optimal performance. By default "LayerNorm".
@@ -65,7 +65,7 @@ class GraphCastProcessor(nn.Module):
         input_dim_edges: int = 512,
         hidden_dim: int = 512,
         hidden_layers: int = 1,
-        activation_fn: nn.Module = nn.SiLU(),
+        activation_fn: nn.Layer = nn.Silu(),
         norm_type: str = "LayerNorm",
         do_concat_trick: bool = False,
         recompute_activation: bool = False,
@@ -100,7 +100,7 @@ class GraphCastProcessor(nn.Module):
             layers.append(MeshEdgeBlock(*edge_block_invars))
             layers.append(MeshNodeBlock(*node_block_invars))
 
-        self.processor_layers = nn.ModuleList(layers)
+        self.processor_layers = nn.LayerList(layers)
         self.num_processor_layers = len(self.processor_layers)
         # per default, no checkpointing
         # one segment for compatability
@@ -181,7 +181,7 @@ class GraphCastProcessor(nn.Module):
         return efeat, nfeat
 
 
-class GraphCastProcessorGraphTransformer(nn.Module):
+class GraphCastProcessorGraphTransformer(nn.Layer):
     """Processor block used in GenCast operating on a latent space
     represented by hierarchy of icosahedral meshes.
 
@@ -221,7 +221,7 @@ class GraphCastProcessorGraphTransformer(nn.Module):
             )
             for i in range(processor_layers)
         ]
-        self.processor_layers = nn.ModuleList(layers)
+        self.processor_layers = nn.LayerList(layers)
 
     def forward(
         self,

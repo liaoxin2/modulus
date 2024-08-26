@@ -17,7 +17,7 @@
 import math
 import warnings
 
-import torch
+import paddle
 
 
 def _trunc_normal_(tensor, mean, std, a, b):
@@ -71,5 +71,5 @@ def trunc_normal_(tensor, mean=0.0, std=1.0, a=-2.0, b=2.0):
     applied while sampling the normal with mean/std applied, therefore a, b args
     should be adjusted to match the range of mean, std args.
     """
-    with torch.no_grad():
+    with paddle.no_grad():
         return _trunc_normal_(tensor, mean, std, a, b)

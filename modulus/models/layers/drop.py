@@ -14,7 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from torch import nn
+import paddle
+from paddle import nn
 
 
 def drop_path(
@@ -36,13 +37,13 @@ def drop_path(
     shape = (x.shape[0],) + (1,) * (
         x.ndim - 1
     )  # work with diff dim tensors, not just 2D ConvNets
-    random_tensor = x.new_empty(shape).bernoulli_(keep_prob)
+    random_tensor = paddle.empty([shape]).bernoulli_(keep_prob)
     if keep_prob > 0.0 and scale_by_keep:
-        random_tensor.div_(keep_prob)
+        random_tensor.divide_(keep_prob)
     return x * random_tensor
 
 
-class DropPath(nn.Module):
+class DropPath(nn.Layer):
     """Cut & paste from timm master
     Drop paths (Stochastic Depth) per sample  (when applied in main path of residual blocks).
     """

@@ -215,7 +215,7 @@ class DistributedAFNONet(nn.Layer):
             ) // matmul_comm_size
         else:
             self.out_chans_local = self.out_chans
-        self.head = nn.Conv2d(
+        self.head = nn.Conv2D(
             self.embed_dim,
             self.out_chans_local * self.patch_size[0] * self.patch_size[1],
             1,
@@ -228,7 +228,7 @@ class DistributedAFNONet(nn.Layer):
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
-        if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+        if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2D):
             trunc_normal_(m.weight, std=0.02)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0)

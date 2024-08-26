@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
+import paddle
 
 
 def get_earth_position_index(window_size, ndim=3):
@@ -28,7 +28,7 @@ def get_earth_position_index(window_size, ndim=3):
         ndim (int): dimension of tensor, 3 or 2
 
     Returns:
-        position_index (torch.Tensor): [win_pl * win_lat * win_lon, win_pl * win_lat * win_lon] or [win_lat * win_lon, win_lat * win_lon]
+        position_index (paddle.Tensor): [win_pl * win_lat * win_lon, win_pl * win_lat * win_lon] or [win_lat * win_lon, win_lat * win_lon]
     """
     if ndim == 3:
         win_pl, win_lat, win_lon = window_size
@@ -37,29 +37,29 @@ def get_earth_position_index(window_size, ndim=3):
 
     if ndim == 3:
         # Index in the pressure level of query matrix
-        coords_zi = torch.arange(win_pl)
+        coords_zi = paddle.arange(win_pl)
         # Index in the pressure level of key matrix
-        coords_zj = -torch.arange(win_pl) * win_pl
+        coords_zj = -paddle.arange(win_pl) * win_pl
 
     # Index in the latitude of query matrix
-    coords_hi = torch.arange(win_lat)
+    coords_hi = paddle.arange(win_lat)
     # Index in the latitude of key matrix
-    coords_hj = -torch.arange(win_lat) * win_lat
+    coords_hj = -paddle.arange(win_lat) * win_lat
 
     # Index in the longitude of the key-value pair
-    coords_w = torch.arange(win_lon)
+    coords_w = paddle.arange(win_lon)
 
     # Change the order of the index to calculate the index in total
     if ndim == 3:
-        coords_1 = torch.stack(torch.meshgrid([coords_zi, coords_hi, coords_w]))
-        coords_2 = torch.stack(torch.meshgrid([coords_zj, coords_hj, coords_w]))
+        coords_1 = paddle.stack(paddle.meshgrid([coords_zi, coords_hi, coords_w]))
+        coords_2 = paddle.stack(paddle.meshgrid([coords_zj, coords_hj, coords_w]))
     elif ndim == 2:
-        coords_1 = torch.stack(torch.meshgrid([coords_hi, coords_w]))
-        coords_2 = torch.stack(torch.meshgrid([coords_hj, coords_w]))
-    coords_flatten_1 = torch.flatten(coords_1, 1)
-    coords_flatten_2 = torch.flatten(coords_2, 1)
+        coords_1 = paddle.stack(paddle.meshgrid([coords_hi, coords_w]))
+        coords_2 = paddle.stack(paddle.meshgrid([coords_hj, coords_w]))
+    coords_flatten_1 = paddle.flatten(coords_1, 1)
+    coords_flatten_2 = paddle.flatten(coords_2, 1)
     coords = coords_flatten_1[:, :, None] - coords_flatten_2[:, None, :]
-    coords = coords.permute(1, 2, 0).contiguous()
+    coords = coords.transpose([1, 2, 0]).contiguous()
 
     # Shift the index for each dimension to start from 0
     if ndim == 3:
@@ -133,10 +133,10 @@ def get_pad2d(input_resolution, window_size):
     return padding[:4]
 
 
-def crop2d(x: torch.Tensor, resolution):
+def crop2d(x: paddle.Tensor, resolution):
     """
     Args:
-        x (torch.Tensor): B, C, Lat, Lon
+        x (paddle.Tensor): B, C, Lat, Lon
         resolution (tuple[int]): Lat, Lon
     """
     _, _, Lat, Lon = x.shape
@@ -154,10 +154,10 @@ def crop2d(x: torch.Tensor, resolution):
     ]
 
 
-def crop3d(x: torch.Tensor, resolution):
+def crop3d(x: paddle.Tensor, resolution):
     """
     Args:
-        x (torch.Tensor): B, C, Pl, Lat, Lon
+        x (paddle.Tensor): B, C, Pl, Lat, Lon
         resolution (tuple[int]): Pl, Lat, Lon
     """
     _, _, Pl, Lat, Lon = x.shape

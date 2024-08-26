@@ -98,7 +98,7 @@ class CustomSiLuLinearAutogradFunction(torch.autograd.Function):
         return grad_features, grad_weight, grad_bias
 
 
-class MeshGraphMLP(nn.Module):
+class MeshGraphMLP(nn.Layer):
     """MLP layer which is commonly used in building blocks
     of models operating on the union of grids and meshes. It
     consists of a number of linear layers followed by an activation
@@ -115,8 +115,8 @@ class MeshGraphMLP(nn.Module):
     hidden_layers : Union[int, None], optional
         number of hidden layers, by default 1
         if None is provided, the MLP will collapse to a Identity function
-    activation_fn : nn.Module, optional
-        , by default nn.SiLU()
+    activation_fn : nn.Layer, optional
+        , by default nn.Silu()
     norm_type : str, optional
         Normalization type ["TELayerNorm", "LayerNorm"].
         Use "TELayerNorm" for optimal performance. By default "LayerNorm".
@@ -131,7 +131,7 @@ class MeshGraphMLP(nn.Module):
         output_dim: int = 512,
         hidden_dim: int = 512,
         hidden_layers: Union[int, None] = 1,
-        activation_fn: nn.Module = nn.SiLU(),
+        activation_fn: nn.Layer = nn.Silu(),
         norm_type: str = "LayerNorm",
         recompute_activation: bool = False,
     ):
@@ -168,7 +168,7 @@ class MeshGraphMLP(nn.Module):
             self.model = nn.Identity()
 
         if recompute_activation:
-            if not isinstance(activation_fn, nn.SiLU):
+            if not isinstance(activation_fn, nn.Silu):
                 raise ValueError(activation_fn)
             self.recompute_activation = True
         else:
@@ -224,8 +224,8 @@ class MeshGraphEdgeMLPConcat(MeshGraphMLP):
         number of neurons in each hidden layer, by default 512
     hidden_layers : int, optional
         number of hidden layers, by default 1
-    activation_fn : nn.Module, optional
-        type of activation function, by default nn.SiLU()
+    activation_fn : nn.Layer, optional
+        type of activation function, by default nn.Silu()
     norm_type : str, optional
         Normalization type ["TELayerNorm", "LayerNorm"].
         Use "TELayerNorm" for optimal performance. By default "LayerNorm".
@@ -244,7 +244,7 @@ class MeshGraphEdgeMLPConcat(MeshGraphMLP):
         output_dim: int = 512,
         hidden_dim: int = 512,
         hidden_layers: int = 2,
-        activation_fn: nn.Module = nn.SiLU(),
+        activation_fn: nn.Layer = nn.Silu(),
         norm_type: str = "LayerNorm",
         bias: bool = True,
         recompute_activation: bool = False,
@@ -271,7 +271,7 @@ class MeshGraphEdgeMLPConcat(MeshGraphMLP):
         return efeat
 
 
-class MeshGraphEdgeMLPSum(nn.Module):
+class MeshGraphEdgeMLPSum(nn.Layer):
     """MLP layer which is commonly used in building blocks
     of models operating on the union of grids and meshes. It
     consists of a number of linear layers followed by an activation
@@ -297,8 +297,8 @@ class MeshGraphEdgeMLPSum(nn.Module):
         number of neurons in each hidden layer, by default 512
     hidden_layers : int, optional
         number of hidden layers, by default 1
-    activation_fn : nn.Module, optional
-        type of activation function, by default nn.SiLU()
+    activation_fn : nn.Layer, optional
+        type of activation function, by default nn.Silu()
     norm_type : str, optional
         Normalization type ["TELayerNorm", "LayerNorm"].
         Use "TELayerNorm" for optimal performance. By default "LayerNorm".
@@ -317,7 +317,7 @@ class MeshGraphEdgeMLPSum(nn.Module):
         output_dim: int = 512,
         hidden_dim: int = 512,
         hidden_layers: int = 1,
-        activation_fn: nn.Module = nn.SiLU(),
+        activation_fn: nn.Layer = nn.Silu(),
         norm_type: str = "LayerNorm",
         bias: bool = True,
         recompute_activation: bool = False,
@@ -373,7 +373,7 @@ class MeshGraphEdgeMLPSum(nn.Module):
         self.model = nn.Sequential(*layers)
 
         if recompute_activation:
-            if not isinstance(activation_fn, nn.SiLU):
+            if not isinstance(activation_fn, nn.Silu):
                 raise ValueError(activation_fn)
             self.recompute_activation = True
         else:

@@ -34,8 +34,8 @@ SOFTWARE.
 import math
 from dataclasses import dataclass
 
-import torch
-from torch import nn
+import paddle
+from paddle import nn
 
 import modulus  # noqa: F401 for docs
 from modulus.models.layers import get_activation
@@ -43,7 +43,7 @@ from modulus.models.layers import get_activation
 from ..meta import ModelMetaData
 from ..module import Module
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
 @dataclass
@@ -93,10 +93,10 @@ class SRResNet(Module):
     ... out_channels=2,
     ... conv_layer_size=4,
     ... scaling_factor=2)
-    >>> input = torch.randn(4, 1, 8, 8, 8) #(N, C, D, H, W)
+    >>> input = paddle.randn(4, 1, 8, 8, 8) #(N, C, D, H, W)
     >>> output = model(input)
     >>> output.size()
-    torch.Size([4, 2, 16, 16, 16])
+    paddle.Size([4, 2, 16, 16, 16])
 
     Note
     ----
@@ -198,7 +198,7 @@ class SRResNet(Module):
         return output
 
 
-class ConvolutionalBlock3d(nn.Module):
+class ConvolutionalBlock3d(nn.Layer):
     """3D convolutional block
 
     Parameters
@@ -222,7 +222,7 @@ class ConvolutionalBlock3d(nn.Module):
         kernel_size: int,
         stride: int = 1,
         batch_norm: bool = False,  # TODO set the train/eval model context
-        activation_fn: nn.Module = nn.Identity(),
+        activation_fn: nn.Layer = nn.Identity(),
     ):
         super().__init__()
 
@@ -231,7 +231,7 @@ class ConvolutionalBlock3d(nn.Module):
 
         # A convolutional layer
         layers.append(
-            nn.Conv3d(
+            nn.Conv3D(
                 in_channels=in_channels,
                 out_channels=out_channels,
                 kernel_size=kernel_size,
@@ -242,7 +242,7 @@ class ConvolutionalBlock3d(nn.Module):
 
         # A batch normalization (BN) layer, if wanted
         if batch_norm is True:
-            layers.append(nn.BatchNorm3d(num_features=out_channels))
+            layers.append(nn.BatchNorm3D(num_features=out_channels))
 
         self.activation_fn = activation_fn
 
@@ -254,7 +254,7 @@ class ConvolutionalBlock3d(nn.Module):
         return output  # (N, out_channels, w, h)
 
 
-class PixelShuffle3d(nn.Module):
+class PixelShuffle3d(nn.Layer):
     """3D pixel-shuffle operation
 
     Parameters
@@ -279,23 +279,25 @@ class PixelShuffle3d(nn.Module):
         out_height = in_height * self.scale
         out_width = in_width * self.scale
 
-        input_view = input.contiguous().view(
-            batch_size,
-            nOut,
-            self.scale,
-            self.scale,
-            self.scale,
-            in_depth,
-            in_height,
-            in_width,
+        input_view = input.contiguous().reshape(
+            [
+                batch_size,
+                nOut,
+                self.scale,
+                self.scale,
+                self.scale,
+                in_depth,
+                in_height,
+                in_width,
+            ]
         )
 
-        output = input_view.permute(0, 1, 5, 2, 6, 3, 7, 4).contiguous()
+        output = input_view.transpose([0, 1, 5, 2, 6, 3, 7, 4]).contiguous()
 
-        return output.view(batch_size, nOut, out_depth, out_height, out_width)
+        return output.reshape([batch_size, nOut, out_depth, out_height, out_width])
 
 
-class SubPixel_ConvolutionalBlock3d(nn.Module):
+class SubPixel_ConvolutionalBlock3d(nn.Layer):
     """Convolutional block with Pixel Shuffle operation
 
     Parameters
@@ -315,7 +317,7 @@ class SubPixel_ConvolutionalBlock3d(nn.Module):
 
         # A convolutional layer that increases the number of channels
         # by scaling factor^2, followed by pixel shuffle and PReLU
-        self.conv = nn.Conv3d(
+        self.conv = nn.Conv3D(
             in_channels=conv_layer_size,
             out_channels=conv_layer_size * (scaling_factor**3),
             kernel_size=kernel_size,
@@ -338,7 +340,7 @@ class SubPixel_ConvolutionalBlock3d(nn.Module):
         return output
 
 
-class ResidualConvBlock3d(nn.Module):
+class ResidualConvBlock3d(nn.Layer):
     """3D ResNet block
 
     Parameters
@@ -349,7 +351,7 @@ class ResidualConvBlock3d(nn.Module):
         Kernel size, by default 3
     conv_layer_size : int, optional
         Latent channel size, by default 64
-    activation_fn : nn.Module, optional
+    activation_fn : nn.Layer, optional
         Activation function, by default nn.Identity()
     """
 
@@ -358,7 +360,7 @@ class ResidualConvBlock3d(nn.Module):
         n_layers: int = 1,
         kernel_size: int = 3,
         conv_layer_size: int = 64,
-        activation_fn: nn.Module = nn.Identity(),
+        activation_fn: nn.Layer = nn.Identity(),
     ):
         super().__init__()
 

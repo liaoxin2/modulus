@@ -14,11 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-from torch import nn
+import paddle
+from paddle import nn
 
 
-class PatchEmbed2D(nn.Module):
+class PatchEmbed2D(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     2D Image to Patch Embedding.
@@ -28,7 +28,7 @@ class PatchEmbed2D(nn.Module):
         patch_size (tuple[int]): Patch token size.
         in_chans (int): Number of input image channels.
         embed_dim(int): Number of projection output channels.
-        norm_layer (nn.Module, optional): Normalization layer. Default: None
+        norm_layer (nn.Layer, optional): Normalization layer. Default: None
     """
 
     def __init__(self, img_size, patch_size, in_chans, embed_dim, norm_layer=None):
@@ -51,10 +51,10 @@ class PatchEmbed2D(nn.Module):
             padding_left = w_pad // 2
             padding_right = int(w_pad - padding_left)
 
-        self.pad = nn.ZeroPad2d(
+        self.pad = nn.ZeroPad2D(
             (padding_left, padding_right, padding_top, padding_bottom)
         )
-        self.proj = nn.Conv2d(
+        self.proj = nn.Conv2D(
             in_chans, embed_dim, kernel_size=patch_size, stride=patch_size
         )
         if norm_layer is not None:
@@ -62,16 +62,16 @@ class PatchEmbed2D(nn.Module):
         else:
             self.norm = None
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: paddle.Tensor):
         B, C, H, W = x.shape
         x = self.pad(x)
         x = self.proj(x)
         if self.norm is not None:
-            x = self.norm(x.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+            x = self.norm(x.transpose([0, 2, 3, 1])).transpose([0, 3, 1, 2])
         return x
 
 
-class PatchEmbed3D(nn.Module):
+class PatchEmbed3D(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     3D Image to Patch Embedding.
@@ -81,7 +81,7 @@ class PatchEmbed3D(nn.Module):
         patch_size (tuple[int]): Patch token size.
         in_chans (int): Number of input image channels.
         embed_dim(int): Number of projection output channels.
-        norm_layer (nn.Module, optional): Normalization layer. Default: None
+        norm_layer (nn.Layer, optional): Normalization layer. Default: None
     """
 
     def __init__(self, img_size, patch_size, in_chans, embed_dim, norm_layer=None):
@@ -110,7 +110,7 @@ class PatchEmbed3D(nn.Module):
             padding_left = w_pad // 2
             padding_right = w_pad - padding_left
 
-        self.pad = nn.ZeroPad3d(
+        self.pad = nn.ZeroPad3D(
             (
                 padding_left,
                 padding_right,
@@ -120,7 +120,7 @@ class PatchEmbed3D(nn.Module):
                 padding_back,
             )
         )
-        self.proj = nn.Conv3d(
+        self.proj = nn.Conv3D(
             in_chans, embed_dim, kernel_size=patch_size, stride=patch_size
         )
         if norm_layer is not None:
@@ -128,16 +128,16 @@ class PatchEmbed3D(nn.Module):
         else:
             self.norm = None
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: paddle.Tensor):
         B, C, L, H, W = x.shape
         x = self.pad(x)
         x = self.proj(x)
         if self.norm:
-            x = self.norm(x.permute(0, 2, 3, 4, 1)).permute(0, 4, 1, 2, 3)
+            x = self.norm(x.transpose([0, 2, 3, 4, 1])).transpose([0, 4, 1, 2, 3])
         return x
 
 
-class PatchRecovery2D(nn.Module):
+class PatchRecovery2D(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     Patch Embedding Recovery to 2D Image.
@@ -152,7 +152,7 @@ class PatchRecovery2D(nn.Module):
     def __init__(self, img_size, patch_size, in_chans, out_chans):
         super().__init__()
         self.img_size = img_size
-        self.conv = nn.ConvTranspose2d(in_chans, out_chans, patch_size, patch_size)
+        self.conv = nn.Conv2DTranspose(in_chans, out_chans, patch_size, patch_size)
 
     def forward(self, x):
         output = self.conv(x)
@@ -171,7 +171,7 @@ class PatchRecovery2D(nn.Module):
         ]
 
 
-class PatchRecovery3D(nn.Module):
+class PatchRecovery3D(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     Patch Embedding Recovery to 3D Image.
@@ -186,9 +186,9 @@ class PatchRecovery3D(nn.Module):
     def __init__(self, img_size, patch_size, in_chans, out_chans):
         super().__init__()
         self.img_size = img_size
-        self.conv = nn.ConvTranspose3d(in_chans, out_chans, patch_size, patch_size)
+        self.conv = nn.Conv3DTranspose(in_chans, out_chans, patch_size, patch_size)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: paddle.Tensor):
         output = self.conv(x)
         _, _, Pl, Lat, Lon = output.shape
 

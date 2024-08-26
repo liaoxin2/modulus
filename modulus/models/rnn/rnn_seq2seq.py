@@ -16,9 +16,9 @@
 
 from dataclasses import dataclass
 
-import torch
-import torch.nn as nn
-from torch import Tensor
+import paddle
+import paddle.nn as nn
+from paddle import Tensor
 
 import modulus  # noqa: F401 for docs
 from modulus.models.layers import get_activation
@@ -79,10 +79,10 @@ class Seq2SeqRNN(Module):
     ... nr_downsamples=2,
     ... nr_tsteps=16,
     ... )
-    >>> input = invar = torch.randn(4, 6, 16, 16, 16) # [N, C, T, H, W]
+    >>> input = invar = paddle.randn(4, 6, 16, 16, 16) # [N, C, T, H, W]
     >>> output = model(input)
-    >>> output.size()
-    torch.Size([4, 6, 16, 16, 16])
+    >>> output.shape
+    paddle.Size([4, 6, 16, 16, 16])
     """
 
     def __init__(
@@ -100,7 +100,7 @@ class Seq2SeqRNN(Module):
         self.nr_tsteps = nr_tsteps
         self.nr_residual_blocks = nr_residual_blocks
         self.nr_downsamples = nr_downsamples
-        self.encoder_layers = nn.ModuleList()
+        self.encoder_layers = nn.LayerList()
         channels_out = nr_latent_channels
         activation_fn = get_activation(activation_fn)
 
@@ -135,10 +135,10 @@ class Seq2SeqRNN(Module):
             in_features=channels_out, hidden_size=channels_out, dimension=dimension
         )
 
-        self.conv_layers = nn.ModuleList()
-        self.decoder_layers = nn.ModuleList()
+        self.conv_layers = nn.LayerList()
+        self.decoder_layers = nn.LayerList()
         for i in range(nr_downsamples):
-            self.upsampling_layers = nn.ModuleList()
+            self.upsampling_layers = nn.LayerList()
             channels_in = channels_out
             channels_out = channels_out // 2
             self.upsampling_layers.append(
@@ -175,12 +175,12 @@ class Seq2SeqRNN(Module):
             self.decoder_layers.append(self.upsampling_layers)
 
         if dimension == 2:
-            self.final_conv = nn.Conv2d(
+            self.final_conv = nn.Conv2D(
                 nr_latent_channels, input_channels, (1, 1), (1, 1), padding="valid"
             )
         else:
             # dimension is 3
-            self.final_conv = nn.Conv3d(
+            self.final_conv = nn.Conv3D(
                 nr_latent_channels,
                 input_channels,
                 (1, 1, 1),
@@ -214,9 +214,9 @@ class Seq2SeqRNN(Module):
 
         # RNN step
         # encode
-        for t in range(x.size(2)):  # time dimension of the input signal
+        for t in range(x.shape[2]):  # time dimension of the input signal
             if t == 0:
-                h = torch.zeros(list(x_in.size())).to(x.device)
+                h = paddle.zeros(list(x_in.shape)).to(x.place)
             x_in_rnn = encoded_inputs[t]
             h = self.rnn_layer(x_in_rnn, h)
 
@@ -245,5 +245,5 @@ class Seq2SeqRNN(Module):
             out = self.final_conv(latent_context_grid[-1])
             decoded_output.append(out)
 
-        decoded_output = torch.stack(decoded_output, dim=2)
+        decoded_output = paddle.stack(decoded_output, axis=2)
         return decoded_output

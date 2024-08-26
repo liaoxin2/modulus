@@ -17,7 +17,7 @@
 import importlib
 from dataclasses import dataclass
 
-import torch
+import paddle
 
 from modulus.models.meta import ModelMetaData
 from modulus.models.module import Module
@@ -121,32 +121,32 @@ class UNet(Module):  # TODO a lot of redundancy, need to clean up
     def forward(self, x, img_lr, sigma, force_fp32=False, **model_kwargs):
         # SR: concatenate input channels
         if img_lr is not None:
-            x = torch.cat((x, img_lr), dim=1)
+            x = paddle.concat((x, img_lr), dim=1)
 
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
+        x = x.to(paddle.float32)
+        sigma = sigma.to(paddle.float32).reshape([-1, 1, 1, 1])
         dtype = (
-            torch.float16
-            if (self.use_fp16 and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            paddle.float16
+            if (self.use_fp16 and not force_fp32 and x.place.type == "cuda")
+            else paddle.float32
         )
 
         F_x = self.model(
             x.to(dtype),  # (c_in * x).to(dtype),
-            torch.zeros(
-                sigma.numel(), dtype=sigma.dtype, device=sigma.device
+            paddle.zeros([sigma.numel()], dtype=sigma.dtype).to(
+                sigma.place
             ),  # c_noise.flatten()
             class_labels=None,
             **model_kwargs,
         )
 
-        if (F_x.dtype != dtype) and not torch.is_autocast_enabled():
-            raise ValueError(
-                f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
-            )
+        # if (F_x.dtype != dtype) and not paddle.is_autocast_enabled():
+        #     raise ValueError(
+        #         f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
+        #     )
 
         # skip connection - for SR there's size mismatch bwtween input and output
-        D_x = F_x.to(torch.float32)
+        D_x = F_x.to(paddle.float32)
         return D_x
 
     def round_sigma(self, sigma):
@@ -155,12 +155,12 @@ class UNet(Module):  # TODO a lot of redundancy, need to clean up
 
         Parameters
         ----------
-        sigma : Union[float list, torch.Tensor]
+        sigma : Union[float list, paddle.Tensor]
             The sigma value(s) to convert.
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The tensor representation of the provided sigma value(s).
         """
-        return torch.as_tensor(sigma)
+        return paddle.as_tensor(sigma)

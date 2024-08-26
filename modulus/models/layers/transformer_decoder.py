@@ -17,18 +17,18 @@
 import copy
 from typing import Callable, Optional, Union
 
-import torch
-from torch import Tensor
-from torch.nn import Dropout, LayerNorm, Linear, Module, ModuleList, MultiheadAttention
-from torch.nn import functional as F
+# import paddle
+from paddle import Tensor
+from paddle.nn import Dropout, Layer, LayerList, LayerNorm, Linear, MultiHeadAttention
+from paddle.nn import functional as F
 
 
-class TransformerDecoder(Module):
+class TransformerDecoder(Layer):
     r"""TransformerDecoder is a stack of N decoder layers
 
     Parameters
     ----------:
-        decoder_layer: torch.nn.Module
+        decoder_layer: paddle.nn.Layer
             Layer used for the doceder
         num_layers: int
             Number of sub-decoder-layers in the decoder.
@@ -39,7 +39,7 @@ class TransformerDecoder(Module):
 
     def __init__(self, decoder_layer, num_layers, norm=None):
         super().__init__()
-        torch._C._log_api_usage_once(f"torch.nn.modules.{self.__class__.__name__}")
+        # paddle._C._log_api_usage_once(f"paddle.nn.modules.{self.__class__.__name__}")
         self.layers = _get_clones(decoder_layer, num_layers)
         self.num_layers = num_layers
         self.norm = norm
@@ -70,7 +70,7 @@ class TransformerDecoder(Module):
         return output
 
 
-class DecoderOnlyLayer(Module):
+class DecoderOnlyLayer(Layer):
     r"""
 
     Parameters
@@ -114,22 +114,22 @@ class DecoderOnlyLayer(Module):
         device=None,
         dtype=None,
     ) -> None:
-        factory_kwargs = {"device": device, "dtype": dtype}
+        factory_kwargs = {}
         super().__init__()
-        self.self_attn = MultiheadAttention(
+        self.self_attn = MultiHeadAttention(
             d_model,
             nhead,
             dropout=dropout,
-            batch_first=batch_first,
-            bias=bias,
+            # batch_first=batch_first,
+            bias_attr=bias,
             **factory_kwargs,
         )
-        self.multihead_attn = MultiheadAttention(
+        self.multihead_attn = MultiHeadAttention(
             d_model,
             nhead,
             dropout=dropout,
-            batch_first=batch_first,
-            bias=bias,
+            # batch_first=batch_first,
+            bias_attr=bias,
             **factory_kwargs,
         )
         # Implementation of Feedforward model
@@ -233,7 +233,7 @@ class DecoderOnlyLayer(Module):
 
 def _get_clones(module, N):
     # FIXME: copy.deepcopy() is not defined on nn.module
-    return ModuleList([copy.deepcopy(module) for i in range(N)])
+    return LayerList([copy.deepcopy(module) for i in range(N)])
 
 
 def _get_activation_fn(activation: str) -> Callable[[Tensor], Tensor]:
@@ -258,10 +258,10 @@ def _detect_is_causal_mask(
         sz = size if size is not None else mask.size(-2)
         # ruff: noqa: F821
         causal_comparison = _generate_square_subsequent_mask(
-            sz, device=mask.device, dtype=mask.dtype
+            sz, device=mask.place, dtype=mask.dtype
         )
 
-        # Do not use `torch.equal` so we handle batched masks by
+        # Do not use `paddle.equal` so we handle batched masks by
         # broadcasting the comparison.
         if mask.size() == causal_comparison.size():
             make_causal = bool((mask == causal_comparison).all())

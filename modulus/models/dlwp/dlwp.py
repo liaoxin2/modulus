@@ -18,15 +18,15 @@ import math
 from dataclasses import dataclass
 from typing import Tuple, Union
 
-import torch
-import torch.nn as nn
+import paddle
+import paddle.nn as nn
 
 import modulus  # noqa: F401 for docs
 from modulus.models.layers import get_activation
 from modulus.models.meta import ModelMetaData
 from modulus.models.module import Module
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
 def _get_same_padding(x: int, k: int, s: int) -> int:
@@ -40,19 +40,19 @@ def _pad_periodically_equatorial(
     main_face, left_face, right_face, top_face, bottom_face, nr_rot, size=2
 ):
     if nr_rot != 0:
-        top_face = torch.rot90(top_face, k=nr_rot, dims=(-2, -1))
-        bottom_face = torch.rot90(bottom_face, k=nr_rot, dims=(-1, -2))
-    padded_data_temp = torch.cat(
-        (left_face[..., :, -size:], main_face, right_face[..., :, :size]), dim=-1
+        top_face = paddle.rot90(top_face, k=nr_rot, axes=(-2, -1))
+        bottom_face = paddle.rot90(bottom_face, k=nr_rot, axes=(-1, -2))
+    padded_data_temp = paddle.concat(
+        (left_face[..., :, -size:], main_face, right_face[..., :, :size]), axis=-1
     )
-    top_pad = torch.cat(
-        (top_face[..., :, :size], top_face, top_face[..., :, -size:]), dim=-1
+    top_pad = paddle.concat(
+        (top_face[..., :, :size], top_face, top_face[..., :, -size:]), axis=-1
     )  # hacky - extend on the left and right side
-    bottom_pad = torch.cat(
-        (bottom_face[..., :, :size], bottom_face, bottom_face[..., :, -size:]), dim=-1
+    bottom_pad = paddle.concat(
+        (bottom_face[..., :, :size], bottom_face, bottom_face[..., :, -size:]), axis=-1
     )  # hacky - extend on the left and right side
-    padded_data = torch.cat(
-        (bottom_pad[..., -size:, :], padded_data_temp, top_pad[..., :size, :]), dim=-2
+    padded_data = paddle.concat(
+        (bottom_pad[..., -size:, :], padded_data_temp, top_pad[..., :size, :]), axis=-2
     )
     return padded_data
 
@@ -67,19 +67,19 @@ def _pad_periodically_polar(
     rot_axis_right,
     size=2,
 ):
-    left_face = torch.rot90(left_face, dims=rot_axis_left)
-    right_face = torch.rot90(right_face, dims=rot_axis_right)
-    padded_data_temp = torch.cat(
-        (bottom_face[..., -size:, :], main_face, top_face[..., :size, :]), dim=-2
+    left_face = paddle.rot90(left_face, axes=rot_axis_left)
+    right_face = paddle.rot90(right_face, axes=rot_axis_right)
+    padded_data_temp = paddle.concat(
+        (bottom_face[..., -size:, :], main_face, top_face[..., :size, :]), axis=-2
     )
-    left_pad = torch.cat(
-        (left_face[..., :size, :], left_face, left_face[..., -size:, :]), dim=-2
+    left_pad = paddle.concat(
+        (left_face[..., :size, :], left_face, left_face[..., -size:, :]), axis=-2
     )  # hacky - extend the left and right
-    right_pad = torch.cat(
-        (right_face[..., :size, :], right_face, right_face[..., -size:, :]), dim=-2
+    right_pad = paddle.concat(
+        (right_face[..., :size, :], right_face, right_face[..., -size:, :]), axis=-2
     )  # hacky - extend the left and right
-    padded_data = torch.cat(
-        (left_pad[..., :, -size:], padded_data_temp, right_pad[..., :, :size]), dim=-1
+    padded_data = paddle.concat(
+        (left_pad[..., :, -size:], padded_data_temp, right_pad[..., :, :size]), axis=-1
     )
     return padded_data
 
@@ -160,9 +160,9 @@ def _cubed_conv_wrapper(faces, equator_conv, polar_conv):
                     rot_axis_right=(-1, -2),
                     size=padding_size,
                 )
-                x = torch.flip(x, [-1])
+                x = paddle.flip(x, [-1])
                 x = polar_conv(x)
-                output.append(torch.flip(x, [-1]))
+                output.append(paddle.flip(x, [-1]))
     else:
         for i in range(6):
             if i in [0, 1, 2, 3]:
@@ -170,9 +170,9 @@ def _cubed_conv_wrapper(faces, equator_conv, polar_conv):
             elif i == 4:
                 output.append(polar_conv(faces[i]))
             else:  # i=5
-                x = torch.flip(faces[i], [-1])
+                x = paddle.flip(faces[i], [-1])
                 x = polar_conv(x)
-                output.append(torch.flip(x, [-1]))
+                output.append(paddle.flip(x, [-1]))
 
     return output
 
@@ -187,7 +187,7 @@ class MetaData(ModelMetaData):
     name: str = "DLWP"
     # Optimization
     jit: bool = False
-    cuda_graphs: bool = True
+    cuda_graphs: bool = False
     amp_cpu: bool = True
     amp_gpu: bool = True
     # Inference
@@ -218,7 +218,7 @@ class DLWP(Module):
     depth : int
         Depth for the U-Net
     clamp_activation : Tuple of ints, floats or None
-        The min and max value used for torch.clamp()
+        The min and max value used for paddle.clamp()
 
     Example
     -------
@@ -226,10 +226,10 @@ class DLWP(Module):
     ... nr_input_channels=2,
     ... nr_output_channels=4,
     ... )
-    >>> input = torch.randn(4, 2, 6, 64, 64) # [N, C, F, Res, Res]
+    >>> input = paddle.randn(4, 2, 6, 64, 64) # [N, C, F, Res, Res]
     >>> output = model(input)
     >>> output.size()
-    torch.Size([4, 4, 6, 64, 64])
+    paddle.Size([4, 4, 6, 64, 64])
 
     Note
     ----
@@ -278,10 +278,10 @@ class DLWP(Module):
             else:
                 ins = self.nr_initial_channels * (2 ** (i - 1))
             outs = self.nr_initial_channels * (2 ** (i))
-            self.equatorial_downsample.append(nn.Conv2d(ins, outs, kernel_size=3))
-            self.polar_downsample.append(nn.Conv2d(ins, outs, kernel_size=3))
-            self.equatorial_downsample.append(nn.Conv2d(outs, outs, kernel_size=3))
-            self.polar_downsample.append(nn.Conv2d(outs, outs, kernel_size=3))
+            self.equatorial_downsample.append(nn.Conv2D(ins, outs, kernel_size=3))
+            self.polar_downsample.append(nn.Conv2D(ins, outs, kernel_size=3))
+            self.equatorial_downsample.append(nn.Conv2D(outs, outs, kernel_size=3))
+            self.polar_downsample.append(nn.Conv2D(outs, outs, kernel_size=3))
 
         for i in range(2):
             if i == 0:
@@ -290,8 +290,8 @@ class DLWP(Module):
             else:
                 ins = outs
                 outs = ins // 2
-            self.equatorial_mid_layers.append(nn.Conv2d(ins, outs, kernel_size=3))
-            self.polar_mid_layers.append(nn.Conv2d(ins, outs, kernel_size=3))
+            self.equatorial_mid_layers.append(nn.Conv2D(ins, outs, kernel_size=3))
+            self.polar_mid_layers.append(nn.Conv2D(ins, outs, kernel_size=3))
 
         for i in range(depth - 1, -1, -1):
             if i == 0:
@@ -301,26 +301,26 @@ class DLWP(Module):
                 outs = self.nr_initial_channels * (2 ** (i))
                 outs_final = outs // 2
             ins = outs * 2
-            self.equatorial_upsample.append(nn.Conv2d(ins, outs, kernel_size=3))
-            self.polar_upsample.append(nn.Conv2d(ins, outs, kernel_size=3))
-            self.equatorial_upsample.append(nn.Conv2d(outs, outs_final, kernel_size=3))
-            self.polar_upsample.append(nn.Conv2d(outs, outs_final, kernel_size=3))
+            self.equatorial_upsample.append(nn.Conv2D(ins, outs, kernel_size=3))
+            self.polar_upsample.append(nn.Conv2D(ins, outs, kernel_size=3))
+            self.equatorial_upsample.append(nn.Conv2D(outs, outs_final, kernel_size=3))
+            self.polar_upsample.append(nn.Conv2D(outs, outs_final, kernel_size=3))
 
-        self.equatorial_downsample = nn.ModuleList(self.equatorial_downsample)
-        self.polar_downsample = nn.ModuleList(self.polar_downsample)
-        self.equatorial_mid_layers = nn.ModuleList(self.equatorial_mid_layers)
-        self.polar_mid_layers = nn.ModuleList(self.polar_mid_layers)
-        self.equatorial_upsample = nn.ModuleList(self.equatorial_upsample)
-        self.polar_upsample = nn.ModuleList(self.polar_upsample)
+        self.equatorial_downsample = nn.LayerList(self.equatorial_downsample)
+        self.polar_downsample = nn.LayerList(self.polar_downsample)
+        self.equatorial_mid_layers = nn.LayerList(self.equatorial_mid_layers)
+        self.polar_mid_layers = nn.LayerList(self.polar_mid_layers)
+        self.equatorial_upsample = nn.LayerList(self.equatorial_upsample)
+        self.polar_upsample = nn.LayerList(self.polar_upsample)
 
-        self.equatorial_last = nn.Conv2d(outs, self.nr_output_channels, kernel_size=1)
-        self.polar_last = nn.Conv2d(outs, self.nr_output_channels, kernel_size=1)
+        self.equatorial_last = nn.Conv2D(outs, self.nr_output_channels, kernel_size=1)
+        self.polar_last = nn.Conv2D(outs, self.nr_output_channels, kernel_size=1)
 
     # define activation layers
     def activation(self, x: Tensor):
         x = self.activation_fn(x)
         if any(isinstance(c, (float, int)) for c in self.clamp_activation):
-            x = torch.clamp(
+            x = paddle.clamp(
                 x, min=self.clamp_activation[0], max=self.clamp_activation[1]
             )
         return x
@@ -333,11 +333,11 @@ class DLWP(Module):
             raise ValueError("The input must have equal height and width")
 
         # split the cubed_sphere_input into individual faces
-        faces = torch.split(
-            cubed_sphere_input, split_size_or_sections=1, dim=2
+        faces = paddle.split(
+            cubed_sphere_input, split_size_or_sections=1, axis=2
         )  # split along face dim
 
-        faces = [torch.squeeze(face, dim=2) for face in faces]
+        faces = [paddle.squeeze(face, axis=2) for face in faces]
 
         encoder_states = []
 
@@ -364,7 +364,7 @@ class DLWP(Module):
                 encoder_faces = encoder_states[len(encoder_states) - j - 1]
                 faces = _cubed_non_conv_wrapper(faces, self.upsample_layer)
                 faces = [
-                    torch.cat((face_1, face_2), dim=1)
+                    paddle.concat((face_1, face_2), axis=1)
                     for face_1, face_2 in zip(faces, encoder_faces)
                 ]
                 j += 1
@@ -372,6 +372,6 @@ class DLWP(Module):
             faces = _cubed_non_conv_wrapper(faces, self.activation)
 
         faces = _cubed_conv_wrapper(faces, self.equatorial_last, self.polar_last)
-        output = torch.stack(faces, dim=2)
+        output = paddle.stack(faces, axis=2)
 
         return output

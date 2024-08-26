@@ -16,15 +16,15 @@
 
 from typing import Callable, Optional, Union
 
-import torch
-import torch.nn as nn
-from torch import Tensor
+# import paddle
+import paddle.nn as nn
+from paddle import Tensor
 
 from .activations import Identity
 from .weight_norm import WeightNormLinear
 
 
-class DGMLayer(nn.Module):
+class DGMLayer(nn.Layer):
     """
     Deep Galerkin Model layer.
 
@@ -36,7 +36,7 @@ class DGMLayer(nn.Module):
         Number of input features for second input.
     out_features : int
         Number of output features.
-    activation_fn : Union[nn.Module, Callable[[Tensor], Tensor]], optional
+    activation_fn : Union[nn.Layer, Callable[[Tensor], Tensor]], optional
         Activation function, by default Activation.IDENTITY
     weight_norm : bool, optional
         Apply weight normalization, by default False
@@ -54,7 +54,7 @@ class DGMLayer(nn.Module):
         in_features_1: int,
         in_features_2: int,
         out_features: int,
-        activation_fn: Union[nn.Module, Callable[[Tensor], Tensor], None] = None,
+        activation_fn: Union[nn.Layer, Callable[[Tensor], Tensor], None] = None,
         weight_norm: bool = False,
         activation_par: Optional[nn.Parameter] = None,
     ) -> None:
@@ -73,16 +73,20 @@ class DGMLayer(nn.Module):
         else:
             self.linear_1 = nn.Linear(in_features_1, out_features, bias=False)
             self.linear_2 = nn.Linear(in_features_2, out_features, bias=False)
-        self.bias = nn.Parameter(torch.empty(out_features))
+        self.bias = self.create_parameter(
+            shape=[out_features], default_initializer=nn.initializer.Constant()
+        )
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        nn.init.xavier_uniform_(self.linear_1.weight)
-        nn.init.xavier_uniform_(self.linear_2.weight)
-        nn.init.constant_(self.bias, 0)
+        nn.initializer.XavierUniform()(self.linear_1.weight)
+        nn.initializer.XavierUniform()(self.linear_2.weight)
+        nn.initializer.Constant(0)(
+            self.bias,
+        )
         if self.weight_norm:
-            nn.init.constant_(self.linear_1.weight_g, 1.0)
-            nn.init.constant_(self.linear_2.weight_g, 1.0)
+            nn.initializer.Constant(1.0)(self.linear_1.weight_g)
+            nn.initializer.Constant(1.0)(self.linear_2.weight_g)
 
     def forward(self, input_1: Tensor, input_2: Tensor) -> Tensor:
         x = self.linear_1(input_1) + self.linear_2(input_2) + self.bias

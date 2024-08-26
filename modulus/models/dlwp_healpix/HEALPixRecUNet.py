@@ -18,8 +18,8 @@ import logging
 from dataclasses import dataclass
 from typing import Sequence
 
-import pandas as pd
-import torch as th
+import paddle as pd
+import pandas as pds
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
@@ -37,7 +37,7 @@ class MetaData(ModelMetaData):
     name: str = "DLWP_HEALPixRec"
     # Optimization
     jit: bool = False
-    cuda_graphs: bool = True
+    cuda_graphs: bool = False
     amp_cpu: bool = True
     amp_gpu: bool = True
     # Inference
@@ -132,8 +132,8 @@ class HEALPixRecUNet(Module):
         self.decoder_input_channels = decoder_input_channels
         self.input_time_dim = input_time_dim
         self.output_time_dim = output_time_dim
-        self.delta_t = int(pd.Timedelta(delta_time).total_seconds() // 3600)
-        self.reset_cycle = int(pd.Timedelta(reset_cycle).total_seconds() // 3600)
+        self.delta_t = int(pds.Timedelta(delta_time).total_seconds() // 3600)
+        self.reset_cycle = int(pds.Timedelta(reset_cycle).total_seconds() // 3600)
         self.presteps = presteps
         self.enable_nhwc = enable_nhwc
         self.enable_healpixpad = enable_healpixpad
@@ -195,7 +195,7 @@ class HEALPixRecUNet(Module):
         """Compute the total number of output channels in the model"""
         return (1 if self.is_diagnostic else self.input_time_dim) * self.output_channels
 
-    def _reshape_inputs(self, inputs: Sequence, step: int = 0) -> th.Tensor:
+    def _reshape_inputs(self, inputs: Sequence, step: int = 0) -> pd.Tensor:
         """
         Returns a single tensor to pass into the model encoder/decoder. Squashes the time/channel dimension and
         concatenates in constants and decoder inputs.
@@ -209,7 +209,7 @@ class HEALPixRecUNet(Module):
 
         Returns
         -------
-        torch.Tensor: reshaped Tensor in expected shape for model encoder
+        paddle.Tensor: reshaped Tensor in expected shape for model encoder
         """
 
         if len(self.couplings) > 0:
@@ -226,11 +226,11 @@ class HEALPixRecUNet(Module):
                     start_dim=self.channel_dim, end_dim=self.channel_dim + 1
                 ),  # DI
                 inputs[2].expand(
-                    *tuple([inputs[0].shape[0]] + len(inputs[2].shape) * [-1])
+                    tuple([inputs[0].shape[0]] + len(inputs[2].shape) * [-1])
                 ),  # constants
-                inputs[3].permute(0, 2, 1, 3, 4),  # coupled inputs
+                inputs[3].transpose([0, 2, 1, 3, 4]),  # coupled inputs
             ]
-            res = th.cat(result, dim=self.channel_dim)
+            res = pd.concat(result, axis=self.channel_dim)
 
         else:
             if self.n_constants == 0:
@@ -249,7 +249,7 @@ class HEALPixRecUNet(Module):
                         start_dim=self.channel_dim, end_dim=self.channel_dim + 1
                     ),  # DI
                 ]
-                res = th.cat(result, dim=self.channel_dim)
+                res = pd.concat(result, axis=self.channel_dim)
 
                 # fold faces into batch dim
                 res = self.fold(res)
@@ -262,10 +262,10 @@ class HEALPixRecUNet(Module):
                         start_dim=self.channel_dim, end_dim=self.channel_dim + 1
                     ),
                     inputs[1].expand(
-                        *tuple([inputs[0].shape[0]] + len(inputs[1].shape) * [-1])
+                        tuple([inputs[0].shape[0]] + len(inputs[1].shape) * [-1])
                     ),  # constants
                 ]
-                res = th.cat(result, dim=self.channel_dim)
+                res = pd.concat(result, axis=self.channel_dim)
 
                 # fold faces into batch dim
                 res = self.fold(res)
@@ -285,16 +285,16 @@ class HEALPixRecUNet(Module):
                     start_dim=self.channel_dim, end_dim=self.channel_dim + 1
                 ),  # DI
                 inputs[2].expand(
-                    *tuple([inputs[0].shape[0]] + len(inputs[2].shape) * [-1])
+                    tuple([inputs[0].shape[0]] + len(inputs[2].shape) * [-1])
                 ),  # constants
             ]
-            res = th.cat(result, dim=self.channel_dim)
+            res = pd.concat(result, axis=self.channel_dim)
 
         # fold faces into batch dim
         res = self.fold(res)
         return res
 
-    def _reshape_outputs(self, outputs: th.Tensor) -> th.Tensor:
+    def _reshape_outputs(self, outputs: pd.Tensor) -> pd.Tensor:
         """Returns a maultiple tensors to from the model decoder.
         Splits the time/channel dimensions.
 
@@ -307,14 +307,14 @@ class HEALPixRecUNet(Module):
 
         Returns
         -------
-        torch.Tensor: reshaped Tensor in expected shape for model outputs
+        paddle.Tensor: reshaped Tensor in expected shape for model outputs
         """
         # unfold:
         outputs = self.unfold(outputs)
 
         # extract shape and reshape
         shape = tuple(outputs.shape)
-        res = th.reshape(
+        res = pd.reshape(
             outputs,
             shape=(
                 shape[0],
@@ -386,7 +386,7 @@ class HEALPixRecUNet(Module):
             # Forward the data through the model to initialize hidden states
             self.decoder(self.encoder(input_tensor))
 
-    def forward(self, inputs: Sequence, output_only_last=False) -> th.Tensor:
+    def forward(self, inputs: Sequence, output_only_last=False) -> pd.Tensor:
         """
         Forward pass of the HEALPixUnet
 
@@ -401,7 +401,7 @@ class HEALPixRecUNet(Module):
 
         Returns
         -------
-        th.Tensor: Predicted outputs
+        pd.Tensor: Predicted outputs
         """
         self.reset()
         outputs = []
@@ -465,7 +465,7 @@ class HEALPixRecUNet(Module):
         if output_only_last:
             return outputs[-1]
 
-        return th.cat(outputs, dim=self.channel_dim)
+        return pd.concat(outputs, axis=self.channel_dim)
 
     def reset(self):
         """Resets the state of the network"""

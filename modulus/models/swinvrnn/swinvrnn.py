@@ -16,8 +16,8 @@
 
 from dataclasses import dataclass
 
-import torch
-from torch import nn
+import paddle
+from paddle import nn
 
 from ..layers import (
     ConvBlock,
@@ -33,7 +33,7 @@ class MetaData(ModelMetaData):
     name: str = "SwinRNN"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
-    cuda_graphs: bool = True
+    cuda_graphs: bool = False
     amp: bool = True
     # Inference
     onnx_cpu: bool = False  # No FFT op on CPU
@@ -121,7 +121,7 @@ class SwinRNN(Module):
         self.img_size = img_size
         self.embed_dim = embed_dim
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: paddle.Tensor):
         B, Cin, _, _, _ = x.shape
         _, patch_lat, patch_lon = self.patch_size
         Lat, Lon = self.input_resolution
@@ -135,39 +135,47 @@ class SwinRNN(Module):
         x = self.down3(h3)
         h4 = self.swin_block4(x)
         B, Cin, H, W = xT.shape
-        h1_d = torch.cat(
-            [xT.reshape(B, Cin, -1), h1.reshape(B, self.embed_dim, -1)], dim=1
-        ).transpose(1, 2)
-        h1_d = self.lin_proj1(h1_d).transpose(1, 2).reshape(B, self.embed_dim, H, W)
+        h1_d = paddle.concat(
+            [xT.reshape([B, Cin, -1]), h1.reshape([B, self.embed_dim, -1])], axis=1
+        ).transpose([0, 2, 1])
+        h1_d = (
+            self.lin_proj1(h1_d).transpose([0, 2, 1]).reshape([B, self.embed_dim, H, W])
+        )
         h1_d = self.swin_decoder1(h1_d)
         h1 = h1 + h1_d
         x2T = self.down1x(xT)
         B, Cin, H, W = x2T.shape
-        h2_d = torch.cat(
-            [x2T.reshape(B, Cin, -1), h2.reshape(B, self.embed_dim, -1)], dim=1
-        ).transpose(1, 2)
-        h2_d = self.lin_proj2(h2_d).transpose(1, 2).reshape(B, self.embed_dim, H, W)
+        h2_d = paddle.concat(
+            [x2T.reshape([B, Cin, -1]), h2.reshape([B, self.embed_dim, -1])], axis=1
+        ).transpose([0, 2, 1])
+        h2_d = (
+            self.lin_proj2(h2_d).transpose([0, 2, 1]).reshape([B, self.embed_dim, H, W])
+        )
         h2_d = self.swin_decoder2(h2_d)
         h2 = h2 + h2_d
         x3T = self.down2x(x2T)
         B, Cin, H, W = x3T.shape
-        h3_d = torch.cat(
-            [x3T.reshape(B, Cin, -1), h3.reshape(B, self.embed_dim, -1)], dim=1
-        ).transpose(1, 2)
-        h3_d = self.lin_proj3(h3_d).transpose(1, 2).reshape(B, self.embed_dim, H, W)
+        h3_d = paddle.concat(
+            [x3T.reshape([B, Cin, -1]), h3.reshape([B, self.embed_dim, -1])], axis=1
+        ).transpose([0, 2, 1])
+        h3_d = (
+            self.lin_proj3(h3_d).transpose([0, 2, 1]).reshape([B, self.embed_dim, H, W])
+        )
         h3_d = self.swin_decoder3(h3_d)
         h3 = h3 + h3_d
         x4T = self.down3x(x3T)
         B, Cin, H, W = x4T.shape
-        h4_d = torch.cat(
-            [x4T.reshape(B, Cin, -1), h4.reshape(B, self.embed_dim, -1)], dim=1
-        ).transpose(1, 2)
-        h4_d = self.lin_proj4(h4_d).transpose(1, 2).reshape(B, self.embed_dim, H, W)
+        h4_d = paddle.concat(
+            [x4T.reshape([B, Cin, -1]), h4.reshape([B, self.embed_dim, -1])], axis=1
+        ).transpose([0, 2, 1])
+        h4_d = (
+            self.lin_proj4(h4_d).transpose([0, 2, 1]).reshape([B, self.embed_dim, H, W])
+        )
         h4_d = self.swin_decoder4(h4_d)
         h4 = h4 + h4_d
         h4_up = self.up3x(h4)
-        h3_up = self.up2x(torch.cat([h3, h4_up], dim=1))
-        h2_up = self.up1x(torch.cat([h2, h3_up], dim=1))
-        h1_up = self.pred(torch.cat([h1, h2_up], dim=1))
+        h3_up = self.up2x(paddle.concat([h3, h4_up], axis=1))
+        h2_up = self.up1x(paddle.concat([h2, h3_up], axis=1))
+        h1_up = self.pred(paddle.concat([h1, h2_up], axis=1))
         x_h1 = xT + h1_up
         return x_h1

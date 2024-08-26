@@ -18,8 +18,8 @@ import functools
 import logging
 from typing import Tuple
 
-import torch
-from torch.autograd import Function
+import paddle
+from paddle.autograd import Function
 
 logger = logging.getLogger(__name__)
 
@@ -39,24 +39,24 @@ except ImportError:
     raise
 
 _torch_dtype_to_nvfuser = {
-    torch.double: DataType.Double,
-    torch.float: DataType.Float,
-    torch.half: DataType.Half,
-    torch.int: DataType.Int,
-    torch.int32: DataType.Int32,
-    torch.bool: DataType.Bool,
-    torch.bfloat16: DataType.BFloat16,
-    torch.cfloat: DataType.ComplexFloat,
-    torch.cdouble: DataType.ComplexDouble,
+    paddle.double: DataType.Double,
+    paddle.float: DataType.Float,
+    paddle.half: DataType.Half,
+    paddle.int: DataType.Int,
+    paddle.int32: DataType.Int32,
+    paddle.bool: DataType.Bool,
+    paddle.bfloat16: DataType.BFloat16,
+    paddle.cfloat: DataType.ComplexFloat,
+    paddle.cdouble: DataType.ComplexDouble,
 }
 
 
 @functools.lru_cache(maxsize=None)
 def silu_backward_for(
     fd: FusionDefinition,
-    dtype: torch.dtype,
+    dtype: paddle.dtype,
     dim: int,
-    size: torch.Size,
+    size: paddle.Size,
     stride: Tuple[int, ...],
 ):  # pragma: no cover
     """
@@ -67,11 +67,11 @@ def silu_backward_for(
     ----------
     fd : FusionDefition
         nvFuser's FusionDefition class
-    dtype : torch.dtype
+    dtype : paddle.dtype
         Data type to use for the implementation
     dim : int
         Dimension of the input tensor
-    size : torch.Size
+    size : paddle.Size
         Size of the input tensor
     stride : Tuple[int, ...]
         Stride of the input tensor
@@ -101,9 +101,9 @@ def silu_backward_for(
 @functools.lru_cache(maxsize=None)
 def silu_double_backward_for(
     fd: FusionDefinition,
-    dtype: torch.dtype,
+    dtype: paddle.dtype,
     dim: int,
-    size: torch.Size,
+    size: paddle.Size,
     stride: Tuple[int, ...],
 ):  # pragma: no cover
     """
@@ -114,11 +114,11 @@ def silu_double_backward_for(
     ----------
     fd : FusionDefition
         nvFuser's FusionDefition class
-    dtype : torch.dtype
+    dtype : paddle.dtype
         Data type to use for the implementation
     dim : int
         Dimension of the input tensor
-    size : torch.Size
+    size : paddle.Size
         Size of the input tensor
     stride : Tuple[int, ...]
         Stride of the input tensor
@@ -157,9 +157,9 @@ def silu_double_backward_for(
 @functools.lru_cache(maxsize=None)
 def silu_triple_backward_for(
     fd: FusionDefinition,
-    dtype: torch.dtype,
+    dtype: paddle.dtype,
     dim: int,
-    size: torch.Size,
+    size: paddle.Size,
     stride: Tuple[int, ...],
 ):  # pragma: no cover
     """
@@ -170,11 +170,11 @@ def silu_triple_backward_for(
     ----------
     fd : FusionDefition
         nvFuser's FusionDefition class
-    dtype : torch.dtype
+    dtype : paddle.dtype
         Data type to use for the implementation
     dim : int
         Dimension of the input tensor
-    size : torch.Size
+    size : paddle.Size
         Size of the input tensor
     stride : Tuple[int, ...]
         Stride of the input tensor
@@ -229,7 +229,7 @@ class FusedSiLU(Function):
         Parameters
         ----------
         ctx :
-            torch context
+            paddle context
         x :
             input tensor
 
@@ -238,7 +238,7 @@ class FusedSiLU(Function):
         output activation
         """
         ctx.save_for_backward(x)
-        return torch.nn.functional.silu(x)
+        return paddle.nn.functional.silu(x)
 
     @staticmethod
     def backward(ctx, grad_output):  # pragma: no cover
@@ -248,7 +248,7 @@ class FusedSiLU(Function):
         Parameters
         ----------
         ctx :
-            torch context
+            paddle context
         grad_output :
             output gradients
 
@@ -317,7 +317,7 @@ class FusedSiLU_deriv_3(Function):
     @staticmethod
     def backward(ctx, grad_output):  # pragma: no cover
         (x,) = ctx.saved_tensors
-        y = torch.sigmoid(x)
+        y = paddle.nn.functional.sigmoid(x)
         dy = y * (1 - y)
         ddy = (1 - 2 * y) * dy
         dddy = (1 - 2 * y) * ddy - 2 * dy * dy

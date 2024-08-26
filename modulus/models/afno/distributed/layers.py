@@ -110,7 +110,7 @@ def drop_path(
     shape = (x.shape[0],) + (1,) * (
         x.ndim - 1
     )  # work with diff dim tensors, not just 2D ConvNets
-    random_tensor = keep_prob + paddle.rand(shape, dtype=x.dtype, device=x.device)
+    random_tensor = keep_prob + paddle.rand(shape, dtype=x.dtype, device=x.place)
     random_tensor.floor_()  # binarize
     output = x.div(keep_prob) * random_tensor
     return output
@@ -260,7 +260,7 @@ class DistributedPatchEmbed(nn.Layer):
             out_chans_local = embed_dim
 
         # the weights  of this layer is shared across spatial parallel ranks
-        self.proj = nn.Conv2d(
+        self.proj = nn.Conv2D(
             in_chans, out_chans_local, kernel_size=patch_size, stride=patch_size
         )
 

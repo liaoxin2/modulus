@@ -38,7 +38,7 @@ from .mlp_layers import Mlp
 from .resample_layers import DownSample2D, UpSample2D
 
 
-class Transformer3DBlock(nn.Module):
+class Transformer3DBlock(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     3D Transformer Block
@@ -54,8 +54,8 @@ class Transformer3DBlock(nn.Module):
         drop (float, optional): Dropout rate. Default: 0.0
         attn_drop (float, optional): Attention dropout rate. Default: 0.0
         drop_path (float, optional): Stochastic depth rate. Default: 0.0
-        act_layer (nn.Module, optional): Activation layer. Default: nn.GELU
-        norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
+        act_layer (nn.Layer, optional): Activation layer. Default: nn.GELU
+        norm_layer (nn.Layer, optional): Normalization layer.  Default: nn.LayerNorm
     """
 
     def __init__(
@@ -86,7 +86,7 @@ class Transformer3DBlock(nn.Module):
 
         self.norm1 = norm_layer(dim)
         padding = get_pad3d(input_resolution, window_size)
-        self.pad = nn.ZeroPad3d(padding)
+        self.pad = nn.ZeroPad3D(padding)
 
         pad_resolution = list(input_resolution)
         pad_resolution[0] += padding[-1] + padding[-2]
@@ -190,7 +190,7 @@ class Transformer3DBlock(nn.Module):
         return x
 
 
-class Transformer2DBlock(nn.Module):
+class Transformer2DBlock(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     2D Transformer Block
@@ -206,8 +206,8 @@ class Transformer2DBlock(nn.Module):
         drop (float, optional): Dropout rate. Default: 0.0
         attn_drop (float, optional): Attention dropout rate. Default: 0.0
         drop_path (float, optional): Stochastic depth rate. Default: 0.0
-        act_layer (nn.Module, optional): Activation layer. Default: nn.GELU
-        norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
+        act_layer (nn.Layer, optional): Activation layer. Default: nn.GELU
+        norm_layer (nn.Layer, optional): Normalization layer.  Default: nn.LayerNorm
     """
 
     def __init__(
@@ -238,7 +238,7 @@ class Transformer2DBlock(nn.Module):
 
         self.norm1 = norm_layer(dim)
         padding = get_pad2d(input_resolution, window_size)
-        self.pad = nn.ZeroPad2d(padding)
+        self.pad = nn.ZeroPad2D(padding)
 
         pad_resolution = list(input_resolution)
         pad_resolution[0] += padding[2] + padding[3]
@@ -336,7 +336,7 @@ class Transformer2DBlock(nn.Module):
         return x
 
 
-class FuserLayer(nn.Module):
+class FuserLayer(nn.Layer):
     """Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     A basic 3D Transformer layer for one stage
 
@@ -352,7 +352,7 @@ class FuserLayer(nn.Module):
         drop (float, optional): Dropout rate. Default: 0.0
         attn_drop (float, optional): Attention dropout rate. Default: 0.0
         drop_path (float | tuple[float], optional): Stochastic depth rate. Default: 0.0
-        norm_layer (nn.Module, optional): Normalization layer. Default: nn.LayerNorm
+        norm_layer (nn.Layer, optional): Normalization layer. Default: nn.LayerNorm
     """
 
     def __init__(
@@ -375,7 +375,7 @@ class FuserLayer(nn.Module):
         self.input_resolution = input_resolution
         self.depth = depth
 
-        self.blocks = nn.ModuleList(
+        self.blocks = nn.LayerList(
             [
                 Transformer3DBlock(
                     dim=dim,
@@ -403,7 +403,7 @@ class FuserLayer(nn.Module):
         return x
 
 
-class EncoderLayer(nn.Module):
+class EncoderLayer(nn.Layer):
     """A 2D Transformer Encoder Module for one stage
 
     Args:
@@ -423,7 +423,7 @@ class EncoderLayer(nn.Module):
         drop (float, optional): Dropout rate. Default: 0.0
         attn_drop (float, optional): Attention dropout rate. Default: 0.0
         drop_path (float | tuple[float], optional): Stochastic depth rate. Default: 0.0
-        norm_layer (nn.Module, optional): Normalization layer. Default: nn.LayerNorm
+        norm_layer (nn.Layer, optional): Normalization layer. Default: nn.LayerNorm
     """
 
     def __init__(
@@ -469,7 +469,7 @@ class EncoderLayer(nn.Module):
             in_chans=in_chans,
             embed_dim=dim,
         )
-        self.blocks = nn.ModuleList(
+        self.blocks = nn.LayerList(
             [
                 Transformer2DBlock(
                     dim=dim,
@@ -497,7 +497,7 @@ class EncoderLayer(nn.Module):
             output_resolution=middle_resolution,
         )
 
-        self.blocks_middle = nn.ModuleList(
+        self.blocks_middle = nn.LayerList(
             [
                 Transformer2DBlock(
                     dim=dim * 2,
@@ -532,7 +532,7 @@ class EncoderLayer(nn.Module):
         return x, skip
 
 
-class DecoderLayer(nn.Module):
+class DecoderLayer(nn.Layer):
     """A 2D Transformer Decoder Module for one stage
 
     Args:
@@ -552,7 +552,7 @@ class DecoderLayer(nn.Module):
         drop (float, optional): Dropout rate. Default: 0.0
         attn_drop (float, optional): Attention dropout rate. Default: 0.0
         drop_path (float | tuple[float], optional): Stochastic depth rate. Default: 0.0
-        norm_layer (nn.Module, optional): Normalization layer. Default: nn.LayerNorm
+        norm_layer (nn.Layer, optional): Normalization layer. Default: nn.LayerNorm
     """
 
     def __init__(
@@ -592,7 +592,7 @@ class DecoderLayer(nn.Module):
         else:
             num_heads_middle = num_heads
 
-        self.blocks_middle = nn.ModuleList(
+        self.blocks_middle = nn.LayerList(
             [
                 Transformer2DBlock(
                     dim=dim * 2,
@@ -621,7 +621,7 @@ class DecoderLayer(nn.Module):
             output_resolution=output_resolution,
         )
 
-        self.blocks = nn.ModuleList(
+        self.blocks = nn.LayerList(
             [
                 Transformer2DBlock(
                     dim=dim,
@@ -658,7 +658,7 @@ class DecoderLayer(nn.Module):
         return output
 
 
-class SwinTransformer(nn.Module):
+class SwinTransformer(nn.Layer):
     """Swin Transformer
     Args:
         embed_dim (int): Patch embedding dimension.
@@ -674,7 +674,7 @@ class SwinTransformer(nn.Module):
         padding = get_pad2d(input_resolution, to_2tuple(window_size))
         padding_left, padding_right, padding_top, padding_bottom = padding
         self.padding = padding
-        self.pad = nn.ZeroPad2d(padding)
+        self.pad = nn.ZeroPad2D(padding)
         input_resolution = list(input_resolution)
         input_resolution[0] = input_resolution[0] + padding_top + padding_bottom
         input_resolution[1] = input_resolution[1] + padding_left + padding_right

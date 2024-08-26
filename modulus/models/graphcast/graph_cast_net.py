@@ -19,8 +19,8 @@ import warnings
 from dataclasses import dataclass
 from typing import Any, Optional
 
-import torch
-from torch import Tensor
+import paddle
+from paddle import Tensor
 
 try:
     from typing import Self
@@ -295,10 +295,10 @@ class GraphCastNet(Module):
         self.partition_group_name = partition_group_name
 
         # create the lat_lon_grid
-        self.latitudes = torch.linspace(-90, 90, steps=input_res[0])
-        self.longitudes = torch.linspace(-180, 180, steps=input_res[1] + 1)[1:]
-        self.lat_lon_grid = torch.stack(
-            torch.meshgrid(self.latitudes, self.longitudes, indexing="ij"), dim=-1
+        self.latitudes = paddle.linspace(-90, 90, steps=input_res[0])
+        self.longitudes = paddle.linspace(-180, 180, steps=input_res[1] + 1)[1:]
+        self.lat_lon_grid = paddle.stack(
+            paddle.meshgrid(self.latitudes, self.longitudes, indexing="ij"), axis=-1
         )
 
         # Set activation function
@@ -318,7 +318,7 @@ class GraphCastNet(Module):
             self.mesh_edata = self.mesh_graph.edata["x"]
         elif self.processor_type == "GraphTransformer":
             # Dummy tensor to avoid breaking the API
-            self.mesh_edata = torch.zeros((1, input_dim_edges))
+            self.mesh_edata = paddle.zeros((1, input_dim_edges))
         else:
             raise ValueError(f"Invalid processor type {processor_type}")
 
@@ -487,7 +487,7 @@ class GraphCastNet(Module):
                 recompute_activation=recompute_activation,
             )
         else:
-            self.processor_encoder = torch.nn.Identity()
+            self.processor_encoder = paddle.nn.Identity()
             self.processor = GraphCastProcessorGraphTransformer(
                 attention_mask=self.attn_mask,
                 num_attention_heads=num_attention_heads,
@@ -495,7 +495,7 @@ class GraphCastNet(Module):
                 input_dim_nodes=hidden_dim,
                 hidden_dim=hidden_dim,
             )
-            self.processor_decoder = torch.nn.Identity()
+            self.processor_decoder = paddle.nn.Identity()
 
         # mesh2grid decoder
         self.decoder = MeshGraphDecoder(
@@ -530,7 +530,7 @@ class GraphCastNet(Module):
         This function returns the appropriate checkpoint function based on the
         provided `checkpoint_flag` flag. If `checkpoint_flag` is True, the
         function returns the checkpoint function from PyTorch's
-        `torch.utils.checkpoint`. In this case, all the other gradient checkpoitings
+        `paddle.utils.checkpoint`. In this case, all the other gradient checkpoitings
         will be disabled. Otherwise, it returns an identity function
         that simply passes the inputs through the given layer.
 
@@ -560,7 +560,7 @@ class GraphCastNet(Module):
         This function returns the appropriate checkpoint function based on the
         provided `checkpoint_segments` flag. If `checkpoint_segments` is positive,
         the function returns the checkpoint function from PyTorch's
-        `torch.utils.checkpoint`, with number of checkpointing segments equal to
+        `paddle.utils.checkpoint`, with number of checkpointing segments equal to
         `checkpoint_segments`. Otherwise, it returns an identity function
         that simply passes the inputs through the given layer.
 
@@ -585,7 +585,7 @@ class GraphCastNet(Module):
         This function returns the appropriate checkpoint function based on the
         provided `checkpoint_flag` flag. If `checkpoint_flag` is True, the
         function returns the checkpoint function from PyTorch's
-        `torch.utils.checkpoint`. Otherwise, it returns an identity function
+        `paddle.utils.checkpoint`. Otherwise, it returns an identity function
         that simply passes the inputs through the given layer.
 
         Parameters
@@ -609,7 +609,7 @@ class GraphCastNet(Module):
         This function returns the appropriate checkpoint function based on the
         provided `checkpoint_flag` flag. If `checkpoint_flag` is True, the
         function returns the checkpoint function from PyTorch's
-        `torch.utils.checkpoint`. Otherwise, it returns an identity function
+        `paddle.utils.checkpoint`. Otherwise, it returns an identity function
         that simply passes the inputs through the given layer.
 
         Parameters
@@ -832,18 +832,20 @@ class GraphCastNet(Module):
             )
 
         if not self.is_distributed:
-            if invar.size(0) != 1:
+            if invar.shape[0] != 1:
                 raise ValueError("GraphCast does not support batch size > 1")
-            invar = invar[0].view(self.input_dim_grid_nodes, -1).permute(1, 0)
+            invar = invar[0].reshape([self.input_dim_grid_nodes, -1]).transpose([1, 0])
 
         else:
             # is_distributed
             if not expect_partitioned_input:
                 # global_features_on_rank_0
-                if invar.size(0) != 1:
+                if invar.shape[0] != 1:
                     raise ValueError("GraphCast does not support batch size > 1")
 
-                invar = invar[0].view(self.input_dim_grid_nodes, -1).permute(1, 0)
+                invar = (
+                    invar[0].reshape([self.input_dim_grid_nodes, -1]).transpose([1, 0])
+                )
 
                 # scatter global features
                 invar = self.g2m_graph.get_src_node_features_in_partition(
@@ -888,9 +890,9 @@ class GraphCastNet(Module):
                     get_on_all_ranks=produce_aggregated_output_on_all_ranks,
                 )
 
-            outvar = outvar.permute(1, 0)
-            outvar = outvar.view(self.output_dim_grid_nodes, *self.input_res)
-            outvar = torch.unsqueeze(outvar, dim=0)
+            outvar = outvar.transpose([1, 0])
+            outvar = outvar.reshape([self.output_dim_grid_nodes, *self.input_res])
+            outvar = paddle.unsqueeze(outvar, axis=0)
 
         return outvar
 
@@ -902,9 +904,9 @@ class GraphCastNet(Module):
         Parameters
         ----------
         *args : Any
-            Positional arguments to be passed to the `torch._C._nn._parse_to` function.
+            Positional arguments to be passed to the `paddle._C._nn._parse_to` function.
         **kwargs : Any
-            Keyword arguments to be passed to the `torch._C._nn._parse_to` function.
+            Keyword arguments to be passed to the `paddle._C._nn._parse_to` function.
 
         Returns
         -------
@@ -918,7 +920,7 @@ class GraphCastNet(Module):
         self.mesh_ndata = self.mesh_ndata.to(*args, **kwargs)
         self.mesh_edata = self.mesh_edata.to(*args, **kwargs)
 
-        device, _, _, _ = torch._C._nn._parse_to(*args, **kwargs)
+        device, _, _, _ = paddle._C._nn._parse_to(*args, **kwargs)
         self.g2m_graph = self.g2m_graph.to(device)
         self.mesh_graph = self.mesh_graph.to(device)
         self.m2g_graph = self.m2g_graph.to(device)

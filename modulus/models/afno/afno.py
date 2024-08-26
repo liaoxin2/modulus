@@ -184,7 +184,7 @@ class AFNO2DLayer(nn.Layer):
                 self.num_blocks,
                 self.block_size * self.hidden_size_factor,
             ],
-            device=x.device,
+            device=x.place,
         )
         o1_imag = paddle.zeros(
             [
@@ -194,9 +194,9 @@ class AFNO2DLayer(nn.Layer):
                 self.num_blocks,
                 self.block_size * self.hidden_size_factor,
             ],
-            device=x.device,
+            device=x.place,
         )
-        o2 = paddle.zeros(x_real.shape + (2,), device=x.device)
+        o2 = paddle.zeros(x_real.shape + (2,), device=x.place)
 
         total_modes = H // 2 + 1
         kept_modes = int(total_modes * self.hard_thresholding_fraction)
@@ -400,7 +400,7 @@ class PatchEmbed(nn.Layer):
         self.inp_shape = inp_shape
         self.patch_size = patch_size
         self.num_patches = num_patches
-        self.proj = nn.Conv2d(
+        self.proj = nn.Conv2D(
             in_channels, embed_dim, kernel_size=patch_size, stride=patch_size
         )
 
@@ -419,7 +419,7 @@ class MetaData(ModelMetaData):
     name: str = "AFNO"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
-    cuda_graphs: bool = True
+    cuda_graphs: bool = False
     amp: bool = True
     # Inference
     onnx_cpu: bool = False  # No FFT op on CPU

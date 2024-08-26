@@ -14,15 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-import torch.nn as nn
+import paddle
+import paddle.nn as nn
 
 import modulus  # noqa: F401 for docs
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
-class Identity(nn.Module):
+class Identity(nn.Layer):
     """Identity activation function
 
     Dummy function for removing activations from a model
@@ -30,9 +30,9 @@ class Identity(nn.Module):
     Example
     -------
     >>> idnt_func = modulus.models.layers.Identity()
-    >>> input = torch.randn(2, 2)
+    >>> input = paddle.randn(2, 2)
     >>> output = idnt_func(input)
-    >>> torch.allclose(input, output)
+    >>> paddle.allclose(input, output)
     True
     """
 
@@ -40,7 +40,7 @@ class Identity(nn.Module):
         return x
 
 
-class Stan(nn.Module):
+class Stan(nn.Layer):
     """Self-scalable Tanh (Stan) for 1D Tensors
 
     Parameters
@@ -57,7 +57,7 @@ class Stan(nn.Module):
     Example
     -------
     >>> stan_func = modulus.models.layers.Stan(out_features=1)
-    >>> input = torch.Tensor([[0],[1],[2]])
+    >>> input = paddle.Tensor([[0],[1],[2]])
     >>> stan_func(input)
     tensor([[0.0000],
             [1.5232],
@@ -66,17 +66,17 @@ class Stan(nn.Module):
 
     def __init__(self, out_features: int = 1):
         super().__init__()
-        self.beta = nn.Parameter(torch.ones(out_features))
+        self.beta = nn.Parameter(paddle.ones(out_features))
 
     def forward(self, x: Tensor) -> Tensor:
         if x.shape[-1] != self.beta.shape[-1]:
             raise ValueError(
                 f"The last dimension of the input must be equal to the dimension of Stan parameters. Got inputs: {x.shape}, params: {self.beta.shape}"
             )
-        return torch.tanh(x) * (1.0 + self.beta * x)
+        return paddle.tanh(x) * (1.0 + self.beta * x)
 
 
-class SquarePlus(nn.Module):
+class SquarePlus(nn.Layer):
     """Squareplus activation
 
     Note
@@ -86,7 +86,7 @@ class SquarePlus(nn.Module):
     Example
     -------
     >>> sqr_func = modulus.models.layers.SquarePlus()
-    >>> input = torch.Tensor([[1,2],[3,4]])
+    >>> input = paddle.Tensor([[1,2],[3,4]])
     >>> sqr_func(input)
     tensor([[1.6180, 2.4142],
             [3.3028, 4.2361]])
@@ -97,17 +97,17 @@ class SquarePlus(nn.Module):
         self.b = 4
 
     def forward(self, x: Tensor) -> Tensor:
-        return 0.5 * (x + torch.sqrt(x * x + self.b))
+        return 0.5 * (x + paddle.sqrt(x * x + self.b))
 
 
-class CappedLeakyReLU(torch.nn.Module):
+class CappedLeakyReLU(paddle.nn.Layer):
     """
     Implements a ReLU with capped maximum value.
 
     Example
     -------
     >>> capped_leakyReLU_func = modulus.models.layers.CappedLeakyReLU()
-    >>> input = torch.Tensor([[-2,-1],[0,1],[2,3]])
+    >>> input = paddle.Tensor([[-2,-1],[0,1],[2,3]])
     >>> capped_leakyReLU_func(input)
     tensor([[-0.0200, -0.0100],
             [ 0.0000,  1.0000],
@@ -122,26 +122,26 @@ class CappedLeakyReLU(torch.nn.Module):
         cap_value: float, optional
             Maximum that values will be capped at
         **kwargs:
-             Keyword arguments to be passed to the `torch.nn.LeakyReLU` function
+             Keyword arguments to be passed to the `paddle.nn.LeakyReLU` function
         """
         super().__init__()
-        self.add_module("leaky_relu", torch.nn.LeakyReLU(**kwargs))
-        self.register_buffer("cap", torch.tensor(cap_value, dtype=torch.float32))
+        self.add_module("leaky_relu", paddle.nn.LeakyReLU(**kwargs))
+        self.register_buffer("cap", paddle.tensor(cap_value, dtype=paddle.float32))
 
     def forward(self, inputs):
         x = self.leaky_relu(inputs)
-        x = torch.clamp(x, max=self.cap)
+        x = paddle.clamp(x, max=self.cap)
         return x
 
 
-class CappedGELU(torch.nn.Module):
+class CappedGELU(paddle.nn.Layer):
     """
     Implements a GELU with capped maximum value.
 
     Example
     -------
     >>> capped_gelu_func = modulus.models.layers.CappedGELU()
-    >>> input = torch.Tensor([[-2,-1],[0,1],[2,3]])
+    >>> input = paddle.Tensor([[-2,-1],[0,1],[2,3]])
     >>> capped_gelu_func(input)
     tensor([[-0.0455, -0.1587],
             [ 0.0000,  0.8413],
@@ -156,16 +156,16 @@ class CappedGELU(torch.nn.Module):
         cap_value: float, optional
             Maximum that values will be capped at
         **kwargs:
-             Keyword arguments to be passed to the `torch.nn.GELU` function
+             Keyword arguments to be passed to the `paddle.nn.GELU` function
         """
 
         super().__init__()
-        self.add_module("gelu", torch.nn.GELU(**kwargs))
-        self.register_buffer("cap", torch.tensor(cap_value, dtype=torch.float32))
+        self.add_module("gelu", paddle.nn.GELU(**kwargs))
+        self.register_buffer("cap", paddle.tensor(cap_value, dtype=paddle.float32))
 
     def forward(self, inputs):
         x = self.gelu(inputs)
-        x = torch.clamp(x, max=self.cap)
+        x = paddle.clamp(x, max=self.cap)
         return x
 
 
@@ -177,7 +177,7 @@ ACT2FN = {
     "relu6": nn.ReLU6,
     "elu": nn.ELU,
     "selu": nn.SELU,
-    "silu": nn.SiLU,
+    "silu": nn.Silu,
     "gelu": nn.GELU,
     "sigmoid": nn.Sigmoid,
     "logsigmoid": nn.LogSigmoid,
@@ -196,7 +196,7 @@ ACT2FN = {
 }
 
 
-def get_activation(activation: str) -> nn.Module:
+def get_activation(activation: str) -> nn.Layer:
     """Returns an activation function given a string
 
     Parameters

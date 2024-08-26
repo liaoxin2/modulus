@@ -17,11 +17,11 @@
 import math
 from typing import List, Tuple
 
-import torch
-import torch.nn.functional as F
-from torch import Tensor
+import paddle
+import paddle.nn.functional as F
+from paddle import Tensor
 
-# TODO enum causes segmentation faults with current torch script. Go back to enum after torch script update
+# TODO enum causes segmentation faults with current paddle script. Go back to enum after paddle script update
 """
 @enum.unique
 class InterpolationType(enum.Enum):
@@ -37,7 +37,7 @@ class InterpolationType(enum.Enum):
 """
 
 
-@torch.jit.script
+# @paddle.jit.script
 def linear_step(x: Tensor) -> Tensor:
     """
     Clips the input tensor values between 0 and 1 using a linear step.
@@ -57,14 +57,14 @@ def linear_step(x: Tensor) -> Tensor:
 
     Example
     -------
-    >>> x = torch.tensor([-0.5, 0.5, 1.5])
+    >>> x = paddle.tensor([-0.5, 0.5, 1.5])
     >>> linear_step(x)
     tensor([0., 0.5, 1.])
     """
-    return torch.clip(x, 0, 1)
+    return paddle.clip(x, 0, 1)
 
 
-@torch.jit.script
+# @paddle.jit.script
 def smooth_step_1(x: Tensor) -> Tensor:
     """
     Compute the smooth step interpolation of the input tensor values.
@@ -84,10 +84,10 @@ def smooth_step_1(x: Tensor) -> Tensor:
     Tensor
         A tensor with smooth step interpolated values, clipped between 0 and 1.
     """
-    return torch.clip(3 * x**2 - 2 * x**3, 0, 1)
+    return paddle.clip(3 * x**2 - 2 * x**3, 0, 1)
 
 
-@torch.jit.script
+# @paddle.jit.script
 def smooth_step_2(x: Tensor) -> Tensor:
     """
     Compute the enhanced smooth step interpolation of the input tensor values.
@@ -107,10 +107,10 @@ def smooth_step_2(x: Tensor) -> Tensor:
     Tensor
         A tensor with enhanced smooth step interpolated values, clipped between 0 and 1.
     """
-    return torch.clip(x**3 * (6 * x**2 - 15 * x + 10), 0, 1)
+    return paddle.clip(x**3 * (6 * x**2 - 15 * x + 10), 0, 1)
 
 
-@torch.jit.script
+# @paddle.jit.script
 def nearest_neighbor_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
     """
     Compute the nearest neighbor weighting for the given distance vector.
@@ -137,10 +137,10 @@ def nearest_neighbor_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
         but with the last two dimensions reduced to single dimensions.
 
     """
-    return torch.ones(dist_vec.shape[:-2] + [1] + [1], device=dist_vec.device)
+    return paddle.ones(dist_vec.shape[:-2] + [1] + [1]).to(dist_vec.place)
 
 
-@torch.jit.script
+# @paddle.jit.script
 def _hyper_cube_weighting(lower_point: Tensor, upper_point: Tensor) -> Tensor:
     dim = lower_point.shape[-1]
     weights = []
@@ -151,11 +151,11 @@ def _hyper_cube_weighting(lower_point: Tensor, upper_point: Tensor) -> Tensor:
             new_weights.append(w * upper_point[..., i])
             new_weights.append(w * lower_point[..., i])
         weights = new_weights
-    weights = torch.stack(weights, dim=-1)
-    return torch.unsqueeze(weights, dim=-1)
+    weights = paddle.stack(weights, axis=-1)
+    return paddle.unsqueeze(weights, axis=-1)
 
 
-@torch.jit.script
+# @paddle.jit.script
 def linear_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
     """
     Compute the linear weighting based on the distance vector and spacing.
@@ -178,7 +178,7 @@ def linear_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
     return _hyper_cube_weighting(lower_point, upper_point)
 
 
-@torch.jit.script
+# @paddle.jit.script
 def smooth_step_1_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
     """
     Compute the weighting using the `smooth_step_1` function on the normalized
@@ -202,7 +202,7 @@ def smooth_step_1_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
     return _hyper_cube_weighting(lower_point, upper_point)
 
 
-@torch.jit.script
+# @paddle.jit.script
 def smooth_step_2_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
     """
     Compute the weighting using the `smooth_step_2` function on the normalized
@@ -226,7 +226,7 @@ def smooth_step_2_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
     return _hyper_cube_weighting(lower_point, upper_point)
 
 
-@torch.jit.script
+# @paddle.jit.script
 def gaussian_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
     """
     Compute the Gaussian weighting based on the distance vector and spacing.
@@ -243,18 +243,18 @@ def gaussian_weighting(dist_vec: Tensor, dx: Tensor) -> Tensor:
     Tensor
         Gaussian weights for the provided distance vector.
     """
-    dim = dx.size(-1)
+    dim = dx.shape[-1]
     sharpen = 2.0
     sigma = dx / sharpen
     factor = 1.0 / ((2.0 * math.pi) ** (dim / 2.0) * sigma.prod())
-    gaussian = torch.exp(-0.5 * torch.square((dist_vec / sigma)))
-    gaussian = factor * gaussian.prod(dim=-1)
-    norm = gaussian.sum(dim=2, keepdim=True)
-    weights = torch.unsqueeze(gaussian / norm, dim=3)
+    gaussian = paddle.exp(-0.5 * paddle.square((dist_vec / sigma)))
+    gaussian = factor * gaussian.prod(axis=-1)
+    norm = gaussian.sum(axis=2, keepdim=True)
+    weights = paddle.unsqueeze(gaussian / norm, axis=3)
     return weights
 
 
-# @torch.jit.script
+# @paddle.jit.script
 def _gather_nd(params: Tensor, indices: Tensor) -> Tensor:
     """As seen here https://discuss.pytorch.org/t/how-to-do-the-tf-gather-nd-in-pytorch/6445/30"""
     orig_shape = list(indices.shape)
@@ -271,12 +271,12 @@ def _gather_nd(params: Tensor, indices: Tensor) -> Tensor:
             f"the last dimension of indices must less or equal to the rank of params. Got indices:{indices.shape}, params:{params.shape}. {m} > {n}"
         )
 
-    indices = indices.reshape((num_samples, m)).transpose(0, 1).tolist()
+    indices = indices.reshape((num_samples, m)).transpose([1, 0]).tolist()
     output = params[indices]  # (num_samples, ...)
     return output.reshape(out_shape).contiguous()
 
 
-@torch.jit.script
+# @paddle.jit.script
 def index_values_high_mem(points: Tensor, idx: Tensor) -> Tensor:
     """
     Index values from the `points` tensor using the provided indices `idx`.
@@ -293,13 +293,13 @@ def index_values_high_mem(points: Tensor, idx: Tensor) -> Tensor:
     Tensor
         Indexed values from the `points` tensor.
     """
-    idx = idx.unsqueeze(3).repeat_interleave(points.size(-1), dim=3)
-    points = points.unsqueeze(1).repeat_interleave(idx.size(1), dim=1)
-    out = torch.gather(points, dim=2, index=idx)
+    idx = idx.unsqueeze(3).repeat_interleave(points.shape[-1], axis=3)
+    points = points.unsqueeze(1).repeat_interleave(idx.shape[1], axis=1)
+    out = paddle.gather(points, axis=2, index=idx)
     return out
 
 
-# @torch.jit.script
+# @paddle.jit.script
 def index_values_low_mem(points: Tensor, idx: Tensor) -> Tensor:
     """
     Input:
@@ -309,30 +309,30 @@ def index_values_low_mem(points: Tensor, idx: Tensor) -> Tensor:
         out: (b,m,n,c) float32 array, interpolated point values
     """
 
-    device = points.device
+    device = points.place
     idxShape = idx.shape
     batch_size = idxShape[0]
     num_points = idxShape[1]
     K = idxShape[2]
     num_features = points.shape[2]
-    batch_indices = torch.reshape(
-        torch.tile(
-            torch.unsqueeze(torch.arange(0, batch_size).to(device), dim=0),
+    batch_indices = paddle.reshape(
+        paddle.tile(
+            paddle.unsqueeze(paddle.arange(0, batch_size).to(device), axis=0),
             (num_points * K,),
         ),
         [-1],
     )  # BNK
-    point_indices = torch.reshape(idx, [-1])  # BNK
+    point_indices = paddle.reshape(idx, [-1])  # BNK
     vertices = _gather_nd(
-        points, torch.stack((batch_indices, point_indices), dim=1)
+        points, paddle.stack((batch_indices, point_indices), axis=1)
     )  # BNKxC
-    vertices4d = torch.reshape(
+    vertices4d = paddle.reshape(
         vertices, [batch_size, num_points, K, num_features]
     )  # BxNxKxC
     return vertices4d
 
 
-@torch.jit.script
+# @paddle.jit.script
 def _grid_knn_idx(
     query_points: Tensor,
     grid: List[Tuple[float, float, int]],
@@ -343,32 +343,34 @@ def _grid_knn_idx(
     k = stride // 2
 
     # set device
-    device = query_points.device
+    device = query_points.place
 
     # find nearest neighbors of query points from a grid
     # dx vector on grid
-    dx = torch.tensor([(x[1] - x[0]) / (x[2] - 1) for x in grid])
-    dx = dx.view(1, 1, len(grid)).to(device)
+    dx = paddle.tensor([(x[1] - x[0]) / (x[2] - 1) for x in grid])
+    dx = dx.reshape([1, 1, len(grid)]).to(device)
 
     # min point on grid (this will change if we are padding the grid)
-    start = torch.tensor([val[0] for val in grid]).to(device)
+    start = paddle.tensor([val[0] for val in grid]).to(device)
     if padding:
         start = start - (k * dx)
-    start = start.view(1, 1, len(grid))
+    start = start.reshape([1, 1, len(grid)])
 
     # this is the center nearest neighbor in the grid
-    center_idx = (((query_points - start) / dx) + (stride / 2.0 % 1.0)).to(torch.int64)
+    center_idx = (((query_points - start) / dx) + (stride / 2.0 % 1.0)).to(paddle.int64)
 
     # index window
     idx_add = (
-        torch.arange(-((stride - 1) // 2), stride // 2 + 1).view(1, 1, -1).to(device)
+        paddle.arange(-((stride - 1) // 2), stride // 2 + 1)
+        .reshape([1, 1, -1])
+        .to(device)
     )
 
     # find all index in window around center index
     # TODO make for more general diminsions
     if len(grid) == 1:
         idx_row_0 = center_idx[..., 0:1] + idx_add
-        idx = idx_row_0.view(idx_row_0.shape[0:2] + torch.Size([int(stride)]))
+        idx = idx_row_0.reshape([idx_row_0.shape[0:2] + [int(stride)]])
     elif len(grid) == 2:
         dim_size_1 = grid[1][2]
         if padding:
@@ -377,8 +379,8 @@ def _grid_knn_idx(
         idx_row_0 = idx_row_0.unsqueeze(-1)
         idx_row_1 = center_idx[..., 1:2] + idx_add
         idx_row_1 = idx_row_1.unsqueeze(2)
-        idx = (idx_row_0 + idx_row_1).view(
-            idx_row_0.shape[0:2] + torch.Size([int(stride**2)])
+        idx = (idx_row_0 + idx_row_1).reshape(
+            [idx_row_0.shape[0:2] + [int(stride**2)]]
         )
     elif len(grid) == 3:
         dim_size_1 = grid[1][2]
@@ -392,8 +394,8 @@ def _grid_knn_idx(
         idx_row_1 = idx_row_1.unsqueeze(2).unsqueeze(-1)
         idx_row_2 = center_idx[..., 2:3] + idx_add
         idx_row_2 = idx_row_2.unsqueeze(2).unsqueeze(3)
-        idx = (idx_row_0 + idx_row_1 + idx_row_2).view(
-            idx_row_0.shape[0:2] + torch.Size([int(stride**3)])
+        idx = (idx_row_0 + idx_row_1 + idx_row_2).reshape(
+            [idx_row_0.shape[0:2] + [int(stride**3)]]
         )
     else:
         raise RuntimeError
@@ -401,8 +403,8 @@ def _grid_knn_idx(
     return idx
 
 
-# TODO currently the `tolist` operation is not supported by torch script and when fixed torch script will be used
-# @torch.jit.script
+# TODO currently the `tolist` operation is not supported by paddle script and when fixed paddle script will be used
+# @paddle.jit.script
 def interpolation(
     query_points: Tensor,
     context_grid: Tensor,
@@ -449,22 +451,22 @@ def interpolation(
         raise RuntimeError(f"Interpolation type {interpolation_type} not supported")
 
     # set device
-    device = query_points.device
+    device = query_points.place
 
     # useful values
     dims = len(grid)
-    nr_channels = context_grid.size(0)
+    nr_channels = context_grid.shape[0]
     dx = [((x[1] - x[0]) / (x[2] - 1)) for x in grid]
 
     # generate mesh grid of position information [grid_dim_1, grid_dim_2, ..., 2-3]
     # NOTE the mesh grid is padded by stride//2
     k = stride // 2
     linspace = [
-        torch.linspace(x[0] - k * dx_i, x[1] + k * dx_i, x[2] + 2 * k)
+        paddle.linspace(x[0] - k * dx_i, x[1] + k * dx_i, x[2] + 2 * k)
         for x, dx_i in zip(grid, dx)
     ]
-    meshgrid = torch.meshgrid(linspace)
-    meshgrid = torch.stack(meshgrid, dim=-1).to(device)
+    meshgrid = paddle.meshgrid(linspace)
+    meshgrid = paddle.stack(meshgrid, axis=-1).to(device)
 
     # pad context grid by k to avoid cuts on corners
     padding = dims * (k, k)
@@ -472,10 +474,10 @@ def interpolation(
 
     # reshape query points, context grid and mesh grid for easier indexing
     # [1, grid_dim_1*grid_dim_2*..., 2-4]
-    nr_grid_points = int(torch.tensor([x[2] + 2 * k for x in grid]).prod())
-    meshgrid = meshgrid.view(1, nr_grid_points, dims)
-    context_grid = torch.reshape(context_grid, [1, nr_channels, nr_grid_points])
-    context_grid = torch.swapaxes(context_grid, 1, 2)
+    nr_grid_points = int(paddle.tensor([x[2] + 2 * k for x in grid]).prod())
+    meshgrid = meshgrid.reshape([1, nr_grid_points, dims])
+    context_grid = paddle.reshape(context_grid, [1, nr_channels, nr_grid_points])
+    context_grid = paddle.swapaxes(context_grid, 1, 2)
     query_points = query_points.unsqueeze(0)
 
     # compute index of nearest neighbor on grid to query points
@@ -489,8 +491,8 @@ def interpolation(
     dist_vec = query_points.unsqueeze(2) - mesh_grid_idx
 
     # make tf dx vec (for interpolation function)
-    dx = torch.tensor(dx, dtype=torch.float32)
-    dx = torch.reshape(dx, [1, 1, 1, dims]).to(device)
+    dx = paddle.tensor(dx, dtype=paddle.float32)
+    dx = paddle.reshape(dx, [1, 1, 1, dims]).to(device)
 
     # compute bump function
     if interpolation_type == "nearest_neighbor":
@@ -514,6 +516,6 @@ def interpolation(
 
     # interpolate points
     product = weights * context_grid_idx
-    interpolated_points = product.sum(dim=2)
+    interpolated_points = product.sum(axis=2)
 
     return interpolated_points[0]

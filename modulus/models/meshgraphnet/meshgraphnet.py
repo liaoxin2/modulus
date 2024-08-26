@@ -14,9 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-import torch.nn as nn
-from torch import Tensor
+# import paddle
+import paddle.nn as nn
+from paddle import Tensor
 
 try:
     import dgl  # noqa: F401 for docs
@@ -107,11 +107,11 @@ class MeshGraphNet(Module):
     ...         output_dim=2,
     ...     )
     >>> graph = dgl.rand_graph(10, 5)
-    >>> node_features = torch.randn(10, 4)
-    >>> edge_features = torch.randn(5, 3)
+    >>> node_features = paddle.randn(10, 4)
+    >>> edge_features = paddle.randn(5, 3)
     >>> output = model(node_features, edge_features, graph)
     >>> output.size()
-    torch.Size([10, 2])
+    paddle.Size([10, 2])
 
     Note
     ----
@@ -199,7 +199,7 @@ class MeshGraphNet(Module):
         return x
 
 
-class MeshGraphNetProcessor(nn.Module):
+class MeshGraphNetProcessor(nn.Layer):
     """MeshGraphNet processor block"""
 
     def __init__(
@@ -211,7 +211,7 @@ class MeshGraphNetProcessor(nn.Module):
         num_layers_edge: int = 2,
         aggregation: str = "sum",
         norm_type: str = "LayerNorm",
-        activation_fn: nn.Module = nn.ReLU(),
+        activation_fn: nn.Layer = nn.ReLU(),
         do_concat_trick: bool = False,
         num_processor_checkpoint_segments: int = 0,
     ):
@@ -250,7 +250,7 @@ class MeshGraphNetProcessor(nn.Module):
         ]
         layers = list(chain(*zip(edge_blocks, node_blocks)))
 
-        self.processor_layers = nn.ModuleList(layers)
+        self.processor_layers = nn.LayerList(layers)
         self.num_processor_layers = len(self.processor_layers)
         self.set_checkpoint_segments(self.num_processor_checkpoint_segments)
 
@@ -318,7 +318,7 @@ class MeshGraphNetProcessor(nn.Module):
 
         return custom_forward
 
-    @torch.jit.unused
+    # @paddle.jit.unused
     def forward(
         self,
         node_features: Tensor,

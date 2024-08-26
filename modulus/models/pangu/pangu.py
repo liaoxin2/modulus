@@ -18,7 +18,7 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-import torch
+import paddle
 
 from ..layers import DownSample3D, FuserLayer, UpSample3D
 from ..meta import ModelMetaData
@@ -36,12 +36,12 @@ class MetaData(ModelMetaData):
     name: str = "Pangu"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
-    cuda_graphs: bool = True
+    cuda_graphs: bool = False
     amp: bool = True
     # Inference
     onnx_cpu: bool = False  # No FFT op on CPU
     onnx_gpu: bool = True
-    onnx_runtime: bool = True
+    onnx_runtime: bool = False
     # Physics informed
     var_dim: int = 1
     func_torch: bool = False
@@ -147,29 +147,29 @@ class Pangu(Module):
     def prepare_input(self, surface, surface_mask, upper_air):
         """Prepares the input to the model in the required shape.
         Args:
-            surface (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
-            surface_mask (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=3.
-            upper_air (torch.Tensor): 3D n_pl=13, n_lat=721, n_lon=1440, chans=5.
+            surface (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
+            surface_mask (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=3.
+            upper_air (paddle.Tensor): 3D n_pl=13, n_lat=721, n_lon=1440, chans=5.
         """
         upper_air = upper_air.reshape(
-            upper_air.shape[0], -1, upper_air.shape[3], upper_air.shape[4]
+            [upper_air.shape[0], -1, upper_air.shape[3], upper_air.shape[4]]
         )
         surface_mask = surface_mask.unsqueeze(0).repeat(surface.shape[0], 1, 1, 1)
-        return torch.concat([surface, surface_mask, upper_air], dim=1)
+        return paddle.concat([surface, surface_mask, upper_air], dim=1)
 
     def forward(self, x):
         """
         Args:
-            x (torch.Tensor): [batch, 4+3+5*13, lat, lon]
+            x (paddle.Tensor): [batch, 4+3+5*13, lat, lon]
         """
         surface = x[:, :7, :, :]
-        upper_air = x[:, 7:, :, :].reshape(x.shape[0], 5, 13, x.shape[2], x.shape[3])
+        upper_air = x[:, 7:, :, :].reshape([x.shape[0], 5, 13, x.shape[2], x.shape[3]])
         surface = self.patchembed2d(surface)
         upper_air = self.patchembed3d(upper_air)
 
-        x = torch.concat([surface.unsqueeze(2), upper_air], dim=2)
+        x = paddle.concat([surface.unsqueeze(2), upper_air], dim=2)
         B, C, Pl, Lat, Lon = x.shape
-        x = x.reshape(B, C, -1).transpose(1, 2)
+        x = x.reshape([B, C, -1]).transpose([0, 2, 1])
 
         x = self.layer1(x)
 
@@ -181,8 +181,8 @@ class Pangu(Module):
         x = self.upsample(x)
         x = self.layer4(x)
 
-        output = torch.concat([x, skip], dim=-1)
-        output = output.transpose(1, 2).reshape(B, -1, Pl, Lat, Lon)
+        output = paddle.concat([x, skip], dim=-1)
+        output = output.transpose([0, 2, 1]).reshape([B, -1, Pl, Lat, Lon])
         output_surface = output[:, :, 0, :, :]
         output_upper_air = output[:, :, 1:, :, :]
 

@@ -14,11 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-from torch import nn
+import paddle
+from paddle import nn
 
 
-class UpSample3D(nn.Module):
+class UpSample3D(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     3D Up-sampling operation.
@@ -39,20 +39,20 @@ class UpSample3D(nn.Module):
         self.input_resolution = input_resolution
         self.output_resolution = output_resolution
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: paddle.Tensor):
         """
         Args:
-            x (torch.Tensor): (B, N, C)
+            x (paddle.Tensor): (B, N, C)
         """
         B, N, C = x.shape
         in_pl, in_lat, in_lon = self.input_resolution
         out_pl, out_lat, out_lon = self.output_resolution
 
         x = self.linear1(x)
-        x = x.reshape(B, in_pl, in_lat, in_lon, 2, 2, C // 2).permute(
-            0, 1, 2, 4, 3, 5, 6
+        x = x.reshape([B, in_pl, in_lat, in_lon, 2, 2, C // 2]).transpose(
+            [0, 1, 2, 4, 3, 5, 6]
         )
-        x = x.reshape(B, in_pl, in_lat * 2, in_lon * 2, -1)
+        x = x.reshape([B, in_pl, in_lat * 2, in_lon * 2, -1])
 
         pad_h = in_lat * 2 - out_lat
         pad_w = in_lon * 2 - out_lon
@@ -70,13 +70,13 @@ class UpSample3D(nn.Module):
             pad_left : 2 * in_lon - pad_right,
             :,
         ]
-        x = x.reshape(x.shape[0], x.shape[1] * x.shape[2] * x.shape[3], x.shape[4])
+        x = x.reshape([x.shape[0], x.shape[1] * x.shape[2] * x.shape[3], x.shape[4]])
         x = self.norm(x)
         x = self.linear2(x)
         return x
 
 
-class UpSample2D(nn.Module):
+class UpSample2D(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     2D Up-sampling operation.
@@ -96,18 +96,18 @@ class UpSample2D(nn.Module):
         self.input_resolution = input_resolution
         self.output_resolution = output_resolution
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: paddle.Tensor):
         """
         Args:
-            x (torch.Tensor): (B, N, C)
+            x (paddle.Tensor): (B, N, C)
         """
         B, N, C = x.shape
         in_lat, in_lon = self.input_resolution
         out_lat, out_lon = self.output_resolution
 
         x = self.linear1(x)
-        x = x.reshape(B, in_lat, in_lon, 2, 2, C // 2).permute(0, 1, 3, 2, 4, 5)
-        x = x.reshape(B, in_lat * 2, in_lon * 2, -1)
+        x = x.reshape([B, in_lat, in_lon, 2, 2, C // 2]).transpose([0, 1, 3, 2, 4, 5])
+        x = x.reshape([B, in_lat * 2, in_lon * 2, -1])
 
         pad_h = in_lat * 2 - out_lat
         pad_w = in_lon * 2 - out_lon
@@ -121,13 +121,13 @@ class UpSample2D(nn.Module):
         x = x[
             :, pad_top : 2 * in_lat - pad_bottom, pad_left : 2 * in_lon - pad_right, :
         ]
-        x = x.reshape(x.shape[0], x.shape[1] * x.shape[2], x.shape[3])
+        x = x.reshape([x.shape[0], x.shape[1] * x.shape[2], x.shape[3]])
         x = self.norm(x)
         x = self.linear2(x)
         return x
 
 
-class DownSample3D(nn.Module):
+class DownSample3D(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     3D Down-sampling operation
@@ -160,7 +160,7 @@ class DownSample3D(nn.Module):
 
         pad_front = pad_back = 0
 
-        self.pad = nn.ZeroPad3d(
+        self.pad = nn.ZeroPad3D(
             (pad_left, pad_right, pad_top, pad_bottom, pad_front, pad_back)
         )
 
@@ -168,19 +168,21 @@ class DownSample3D(nn.Module):
         B, N, C = x.shape
         in_pl, in_lat, in_lon = self.input_resolution
         out_pl, out_lat, out_lon = self.output_resolution
-        x = x.reshape(B, in_pl, in_lat, in_lon, C)
+        x = x.reshape([B, in_pl, in_lat, in_lon, C])
 
         # Padding the input to facilitate downsampling
-        x = self.pad(x.permute(0, -1, 1, 2, 3)).permute(0, 2, 3, 4, 1)
-        x = x.reshape(B, in_pl, out_lat, 2, out_lon, 2, C).permute(0, 1, 2, 4, 3, 5, 6)
-        x = x.reshape(B, out_pl * out_lat * out_lon, 4 * C)
+        x = self.pad(x.transpose([0, -1, 1, 2, 3])).transpose([0, 2, 3, 4, 1])
+        x = x.reshape([B, in_pl, out_lat, 2, out_lon, 2, C]).transpose(
+            [0, 1, 2, 4, 3, 5, 6]
+        )
+        x = x.reshape([B, out_pl * out_lat * out_lon, 4 * C])
 
         x = self.norm(x)
         x = self.linear(x)
         return x
 
 
-class DownSample2D(nn.Module):
+class DownSample2D(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     2D Down-sampling operation
@@ -210,18 +212,18 @@ class DownSample2D(nn.Module):
         pad_left = w_pad // 2
         pad_right = w_pad - pad_left
 
-        self.pad = nn.ZeroPad2d((pad_left, pad_right, pad_top, pad_bottom))
+        self.pad = nn.ZeroPad2D((pad_left, pad_right, pad_top, pad_bottom))
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: paddle.Tensor):
         B, N, C = x.shape
         in_lat, in_lon = self.input_resolution
         out_lat, out_lon = self.output_resolution
-        x = x.reshape(B, in_lat, in_lon, C)
+        x = x.reshape([B, in_lat, in_lon, C])
 
         # Padding the input to facilitate downsampling
-        x = self.pad(x.permute(0, -1, 1, 2)).permute(0, 2, 3, 1)
-        x = x.reshape(B, out_lat, 2, out_lon, 2, C).permute(0, 1, 3, 2, 4, 5)
-        x = x.reshape(B, out_lat * out_lon, 4 * C)
+        x = self.pad(x.transpose([0, -1, 1, 2])).transpose([0, 2, 3, 1])
+        x = x.reshape([B, out_lat, 2, out_lon, 2, C]).transpose([0, 1, 3, 2, 4, 5])
+        x = x.reshape([B, out_lat * out_lon, 4 * C])
 
         x = self.norm(x)
         x = self.linear(x)

@@ -16,7 +16,7 @@
 
 
 import numpy as np
-import torch
+import paddle
 
 
 def weight_init(shape: tuple, mode: str, fan_in: int, fan_out: int):
@@ -47,7 +47,7 @@ def weight_init(shape: tuple, mode: str, fan_in: int, fan_out: int):
 
     Returns
     -------
-    torch.Tensor
+    paddle.Tensor
         The initialized tensor based on the specified mode.
 
     Raises
@@ -56,11 +56,11 @@ def weight_init(shape: tuple, mode: str, fan_in: int, fan_out: int):
         If the provided `mode` is not one of the supported initialization modes.
     """
     if mode == "xavier_uniform":
-        return np.sqrt(6 / (fan_in + fan_out)) * (torch.rand(*shape) * 2 - 1)
+        return np.sqrt(6 / (fan_in + fan_out)) * (paddle.rand(shape) * 2 - 1)
     if mode == "xavier_normal":
-        return np.sqrt(2 / (fan_in + fan_out)) * torch.randn(*shape)
+        return np.sqrt(2 / (fan_in + fan_out)) * paddle.randn(shape)
     if mode == "kaiming_uniform":
-        return np.sqrt(3 / fan_in) * (torch.rand(*shape) * 2 - 1)
+        return np.sqrt(3 / fan_in) * (paddle.rand(shape) * 2 - 1)
     if mode == "kaiming_normal":
-        return np.sqrt(1 / fan_in) * torch.randn(*shape)
+        return np.sqrt(1 / fan_in) * paddle.randn(shape)
     raise ValueError(f'Invalid init mode "{mode}"')

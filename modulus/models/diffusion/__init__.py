@@ -17,7 +17,7 @@
 from .utils import weight_init
 from .layers import (
     AttentionOp,
-    Conv2d,
+    Conv2D,
     FourierEmbedding,
     GroupNorm,
     Linear,

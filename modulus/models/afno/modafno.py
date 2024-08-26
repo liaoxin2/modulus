@@ -209,9 +209,9 @@ class ModAFNO2DLayer(AFNO2DLayer):
         )
         scale_shift_shape = (B, self.channel_mul, 1, o1_shape[3], o1_shape[4])
 
-        o1_real = paddle.zeros(o1_shape).to(device=x.device)
-        o1_imag = paddle.zeros(o1_shape).to(device=x.device)
-        o2 = paddle.zeros(x_real.shape + (2,)).to(device=x.device)
+        o1_real = paddle.zeros(o1_shape).to(device=x.place)
+        o1_imag = paddle.zeros(o1_shape).to(device=x.place)
+        o2 = paddle.zeros(x_real.shape + (2,)).to(device=x.place)
 
         total_modes = min(H, W) // 2 + 1
         kept_modes = int(total_modes * self.hard_thresholding_fraction)
@@ -444,7 +444,7 @@ class MetaData(ModelMetaData):
     name: str = "ModAFNO"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
-    cuda_graphs: bool = True
+    cuda_graphs: bool = False
     amp: bool = True
     # Inference
     onnx_cpu: bool = False  # No FFT op on CPU

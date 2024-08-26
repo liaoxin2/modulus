@@ -55,8 +55,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from dataclasses import dataclass
 
-import torch
-import torch.nn as nn
+import paddle
+import paddle.nn as nn
 
 import modulus  # noqa: F401 for docs
 from modulus.models.layers import get_activation
@@ -64,7 +64,7 @@ from modulus.models.layers import get_activation
 from ..meta import ModelMetaData
 from ..module import Module
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
 @dataclass
@@ -72,7 +72,7 @@ class MetaData(ModelMetaData):
     name: str = "Pix2Pix"
     # Optimization
     jit: bool = True
-    cuda_graphs: bool = True
+    cuda_graphs: bool = False
     amp_cpu: bool = False  # Reflect padding not supported in bfloat16
     amp_gpu: bool = True
     # Inference
@@ -122,10 +122,10 @@ class Pix2Pix(Module):
     ... out_channels=2,
     ... dimension=2,
     ... conv_layer_size=4)
-    >>> input = torch.randn(4, 1, 32, 32) #(N, C, H, W)
+    >>> input = paddle.randn(4, 1, 32, 32) #(N, C, H, W)
     >>> output = model(input)
     >>> output.size()
-    torch.Size([4, 2, 32, 32])
+    paddle.Size([4, 2, 32, 32])
 
     Note
     ----
@@ -169,20 +169,20 @@ class Pix2Pix(Module):
 
         # set padding and convolutions
         if dimension == 1:
-            padding = nn.ReflectionPad1d(3)
-            conv = nn.Conv1d
-            trans_conv = nn.ConvTranspose1d
-            norm = nn.BatchNorm1d
+            padding = nn.Pad1D(3, mode="reflect")
+            conv = nn.Conv1D
+            trans_conv = nn.Conv1DTranspose
+            norm = nn.BatchNorm1D
         elif dimension == 2:
-            padding = nn.ReflectionPad2d(3)
-            conv = nn.Conv2d
-            trans_conv = nn.ConvTranspose2d
-            norm = nn.BatchNorm2d
+            padding = nn.Pad2D(3, mode="reflect")
+            conv = nn.Conv2D
+            trans_conv = nn.Conv2DTranspose
+            norm = nn.BatchNorm2D
         elif dimension == 3:
-            padding = nn.ReflectionPad3d(3)
-            conv = nn.Conv3d
-            trans_conv = nn.ConvTranspose3d
-            norm = nn.BatchNorm3d
+            padding = nn.Pad3D(3, mode="reflect")
+            conv = nn.Conv3D
+            trans_conv = nn.Conv3DTranspose
+            norm = nn.BatchNorm3D
         else:
             raise NotImplementedError(
                 f"Pix2Pix only supported dimensions 1, 2, 3. Got {dimension}"
@@ -269,7 +269,7 @@ class Pix2Pix(Module):
         return y
 
 
-class ResnetBlock(nn.Module):
+class ResnetBlock(nn.Layer):
     """A simple ResNet block
 
     Parameters
@@ -280,7 +280,7 @@ class ResnetBlock(nn.Module):
         Number of feature channels
     padding_type : str, optional
         Padding type ('reflect', 'replicate' or 'zero'), by default "reflect"
-    activation : nn.Module, optional
+    activation : nn.Layer, optional
         Activation function, by default nn.ReLU()
     use_batch_norm : bool, optional
         Batch normalization, by default False
@@ -291,7 +291,7 @@ class ResnetBlock(nn.Module):
         dimension: int,
         channels: int,
         padding_type: str = "reflect",
-        activation: nn.Module = nn.ReLU(),
+        activation: nn.Layer = nn.ReLU(),
         use_batch_norm: bool = False,
         use_dropout: bool = False,
     ):
@@ -304,32 +304,32 @@ class ResnetBlock(nn.Module):
             raise ValueError(f"Invalid padding type {padding_type}")
 
         if dimension == 1:
-            conv = nn.Conv1d
+            conv = nn.Conv1D
             if padding_type == "reflect":
-                padding = nn.ReflectionPad1d(1)
+                padding = nn.Pad1D(1, mode="reflect")
             elif padding_type == "replicate":
                 padding = nn.ReplicationPad1d(1)
             else:
                 padding = None
-            norm = nn.BatchNorm1d
+            norm = nn.BatchNorm1D
         elif dimension == 2:
-            conv = nn.Conv2d
+            conv = nn.Conv2D
             if padding_type == "reflect":
-                padding = nn.ReflectionPad2d(1)
+                padding = nn.Pad1D(1, mode="reflect")
             elif padding_type == "replicate":
                 padding = nn.ReplicationPad2d(1)
             else:
                 padding = None
-            norm = nn.BatchNorm2d
+            norm = nn.BatchNorm2D
         elif dimension == 3:
-            conv = nn.Conv3d
+            conv = nn.Conv3D
             if padding_type == "reflect":
-                padding = nn.ReflectionPad3d(1)
+                padding = nn.Pad3D(1, mode="reflect")
             elif padding_type == "replicate":
-                padding = nn.ReplicationPad3d(1)
+                padding = nn.Pad3D(1, mode="replicate")
             else:
                 padding = None
-            norm = nn.BatchNorm3d
+            norm = nn.BatchNorm3D
         else:
             raise NotImplementedError(
                 f"Pix2Pix ResnetBlock only supported dimensions 1, 2, 3. Got {dimension}"

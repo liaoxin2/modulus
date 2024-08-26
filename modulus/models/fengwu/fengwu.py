@@ -18,7 +18,7 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-import torch
+import paddle
 
 from ..layers import (
     DecoderLayer,
@@ -34,7 +34,7 @@ class MetaData(ModelMetaData):
     name: str = "Fengwu"
     # Optimization
     jit: bool = False  # ONNX Ops Conflict
-    cuda_graphs: bool = True
+    cuda_graphs: bool = False
     amp: bool = True
     # Inference
     onnx_cpu: bool = False  # No FFT op on CPU
@@ -251,24 +251,24 @@ class Fengwu(Module):
     def prepare_input(self, surface, z, r, u, v, t):
         """Prepares the input to the model in the required shape.
         Args:
-            surface (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
-            z (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
-            r (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
-            u (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
-            v (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
-            t (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
+            surface (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
+            z (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
+            r (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
+            u (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
+            v (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
+            t (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
         """
-        return torch.concat([surface, z, r, u, v, t], dim=1)
+        return paddle.concat([surface, z, r, u, v, t], axis=1)
 
     def forward(self, x):
         """
         Args:
-            surface (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
-            z (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
-            r (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
-            u (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
-            v (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
-            t (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
+            surface (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
+            z (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
+            r (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
+            u (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
+            v (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
+            t (paddle.Tensor): 2D n_lat=721, n_lon=1440, chans=37.
         """
         surface = x[:, :4, :, :]
         z = x[:, 4:41, :, :]
@@ -283,7 +283,7 @@ class Fengwu(Module):
         v, skip_v = self.encoder_v(v)
         t, skip_t = self.encoder_t(t)
 
-        x = torch.concat(
+        x = paddle.concat(
             [
                 surface.unsqueeze(1),
                 z.unsqueeze(1),
@@ -292,13 +292,13 @@ class Fengwu(Module):
                 v.unsqueeze(1),
                 t.unsqueeze(1),
             ],
-            dim=1,
+            axis=1,
         )
         B, PL, L_SIZE, C = x.shape
-        x = x.reshape(B, -1, C)
+        x = x.reshape([B, -1, C])
         x = self.fuser(x)
 
-        x = x.reshape(B, PL, L_SIZE, C)
+        x = x.reshape([B, PL, L_SIZE, C])
         surface, z, r, u, v, t = (
             x[:, 0, :, :],
             x[:, 1, :, :],

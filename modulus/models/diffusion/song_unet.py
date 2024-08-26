@@ -24,12 +24,14 @@ from typing import List, Union
 
 import numpy as np
 import nvtx
-import torch
-from torch.nn.functional import silu
-from torch.utils.checkpoint import checkpoint
+import paddle
+
+# from paddle.utils.checkpoint import recompute
+from paddle.distributed.fleet.utils import recompute
+from paddle.nn.functional import silu
 
 from modulus.models.diffusion import (
-    Conv2d,
+    Conv2D,
     FourierEmbedding,
     GroupNorm,
     Linear,
@@ -125,12 +127,12 @@ class SongUNet(Module):
     Example
     --------
     >>> model = SongUNet(img_resolution=16, in_channels=2, out_channels=2)
-    >>> noise_labels = torch.randn([1])
-    >>> class_labels = torch.randint(0, 1, (1, 1))
-    >>> input_image = torch.ones([1, 2, 16, 16])
+    >>> noise_labels = paddle.randn([1])
+    >>> class_labels = paddle.randint(0, 1, (1, 1))
+    >>> input_image = paddle.ones([1, 2, 16, 16])
     >>> output_image = model(input_image, noise_labels, class_labels)
     >>> output_image.shape
-    torch.Size([1, 2, 16, 16])
+    paddle.Size([1, 2, 16, 16])
     """
 
     def __init__(
@@ -236,7 +238,7 @@ class SongUNet(Module):
             )
 
         # Encoder.
-        self.enc = torch.nn.ModuleDict()
+        self.enc = paddle.nn.LayerDictDict()
         cout = in_channels
         caux = in_channels
         for level, mult in enumerate(channel_mult):
@@ -244,7 +246,7 @@ class SongUNet(Module):
             if level == 0:
                 cin = cout
                 cout = model_channels
-                self.enc[f"{res}x{res}_conv"] = Conv2d(
+                self.enc[f"{res}x{res}_conv"] = Conv2D(
                     in_channels=cin, out_channels=cout, kernel=3, **init
                 )
             else:
@@ -252,18 +254,18 @@ class SongUNet(Module):
                     in_channels=cout, out_channels=cout, down=True, **block_kwargs
                 )
                 if encoder_type == "skip":
-                    self.enc[f"{res}x{res}_aux_down"] = Conv2d(
+                    self.enc[f"{res}x{res}_aux_down"] = Conv2D(
                         in_channels=caux,
                         out_channels=caux,
                         kernel=0,
                         down=True,
                         resample_filter=resample_filter,
                     )
-                    self.enc[f"{res}x{res}_aux_skip"] = Conv2d(
+                    self.enc[f"{res}x{res}_aux_skip"] = Conv2D(
                         in_channels=caux, out_channels=cout, kernel=1, **init
                     )
                 if encoder_type == "residual":
-                    self.enc[f"{res}x{res}_aux_residual"] = Conv2d(
+                    self.enc[f"{res}x{res}_aux_residual"] = Conv2D(
                         in_channels=caux,
                         out_channels=cout,
                         kernel=3,
@@ -285,7 +287,7 @@ class SongUNet(Module):
         ]
 
         # Decoder.
-        self.dec = torch.nn.ModuleDict()
+        self.dec = paddle.nn.LayerDictDict()
         for level, mult in reversed(list(enumerate(channel_mult))):
             res = self.img_shape_y >> level
             if level == len(channel_mult) - 1:
@@ -308,7 +310,7 @@ class SongUNet(Module):
                 )
             if decoder_type == "skip" or level == 0:
                 if decoder_type == "skip" and level < len(channel_mult) - 1:
-                    self.dec[f"{res}x{res}_aux_up"] = Conv2d(
+                    self.dec[f"{res}x{res}_aux_up"] = Conv2D(
                         in_channels=out_channels,
                         out_channels=out_channels,
                         kernel=0,
@@ -318,7 +320,7 @@ class SongUNet(Module):
                 self.dec[f"{res}x{res}_aux_norm"] = GroupNorm(
                     num_channels=cout, eps=1e-6
                 )
-                self.dec[f"{res}x{res}_aux_conv"] = Conv2d(
+                self.dec[f"{res}x{res}_aux_conv"] = Conv2D(
                     in_channels=cout, out_channels=out_channels, kernel=3, **init_zero
                 )
 
@@ -328,13 +330,13 @@ class SongUNet(Module):
             # Mapping.
             emb = self.map_noise(noise_labels)
             emb = (
-                emb.reshape(emb.shape[0], 2, -1).flip(1).reshape(*emb.shape)
+                emb.reshape([emb.shape[0], 2, -1]).flip(1).reshape(emb.shape)
             )  # swap sin/cos
             if self.map_label is not None:
                 tmp = class_labels
                 if self.training and self.label_dropout:
                     tmp = tmp * (
-                        torch.rand([x.shape[0], 1], device=x.device)
+                        paddle.rand([x.shape[0], 1], device=x.place)
                         >= self.label_dropout
                     ).to(tmp.dtype)
                 emb = emb + self.map_label(tmp * np.sqrt(self.map_label.in_features))
@@ -343,8 +345,8 @@ class SongUNet(Module):
             emb = silu(self.map_layer0(emb))
             emb = silu(self.map_layer1(emb))
         else:
-            emb = torch.zeros(
-                (noise_labels.shape[0], self.emb_channels), device=x.device
+            emb = paddle.zeros(
+                (noise_labels.shape[0], self.emb_channels), device=x.place
             )
 
         # Encoder.
@@ -362,7 +364,7 @@ class SongUNet(Module):
                     # For UNetBlocks check if we should use gradient checkpointing
                     if isinstance(block, UNetBlock):
                         if x.shape[-1] > self.checkpoint_threshold:
-                            x = checkpoint(block, x, emb, use_reentrant=False)
+                            x = recompute(block, x, emb, use_reentrant=False)
                         else:
                             x = block(x, emb)
                     else:
@@ -383,14 +385,14 @@ class SongUNet(Module):
                     aux = tmp if aux is None else tmp + aux
                 else:
                     if x.shape[1] != block.in_channels:
-                        x = torch.cat([x, skips.pop()], dim=1)
+                        x = paddle.concat([x, skips.pop()], axis=1)
                     # check for checkpointing on decoder blocks and up sampling blocks
                     if (
                         x.shape[-1] > self.checkpoint_threshold and "_block" in name
                     ) or (
                         x.shape[-1] > (self.checkpoint_threshold / 2) and "_up" in name
                     ):
-                        x = checkpoint(block, x, emb, use_reentrant=False)
+                        x = recompute(block, x, emb, use_reentrant=False)
                     else:
                         x = block(x, emb)
         return aux
@@ -461,12 +463,12 @@ class SongUNetPosEmbd(SongUNet):
     Example
     --------
     >>> model = SongUNet(img_resolution=16, in_channels=2, out_channels=2)
-    >>> noise_labels = torch.randn([1])
-    >>> class_labels = torch.randint(0, 1, (1, 1))
-    >>> input_image = torch.ones([1, 2, 16, 16])
+    >>> noise_labels = paddle.randn([1])
+    >>> class_labels = paddle.randint(0, 1, (1, 1))
+    >>> input_image = paddle.ones([1, 2, 16, 16])
     >>> output_image = model(input_image, noise_labels, class_labels)
     >>> output_image.shape
-    torch.Size([1, 2, 16, 16])
+    paddle.Size([1, 2, 16, 16])
     """
 
     def __init__(
@@ -524,7 +526,7 @@ class SongUNetPosEmbd(SongUNet):
         # append positional embedding to input conditioning
         if self.pos_embd is not None:
             selected_pos_embd = self.positional_embedding_indexing(x, global_index)
-            x = torch.cat((x, selected_pos_embd), dim=1)
+            x = paddle.concat((x, selected_pos_embd), axis=1)
 
         return super().forward(x, noise_labels, class_labels, augment_labels)
 
@@ -532,25 +534,27 @@ class SongUNetPosEmbd(SongUNet):
         if global_index is None:
             selected_pos_embd = (
                 self.pos_embd.to(x.dtype)
-                .to(x.device)[None]
+                .to(x.place)[None]
                 .expand((x.shape[0], -1, -1, -1))
             )
         else:
             B = global_index.shape[0]
             X = global_index.shape[2]
             Y = global_index.shape[3]
-            global_index = torch.reshape(
-                torch.permute(global_index, (1, 0, 2, 3)), (2, -1)
+            global_index = paddle.reshape(
+                paddle.transpose(global_index, (1, 0, 2, 3)), (2, -1)
             )  # (B, 2, X, Y) to (2, B*X*Y)
-            selected_pos_embd = self.pos_embd.to(x.device)[
+            selected_pos_embd = self.pos_embd.to(x.place)[
                 :, global_index[0], global_index[1]
             ]  # (N_pe, B*X*Y)
             selected_pos_embd = (
-                torch.permute(
-                    torch.reshape(selected_pos_embd, (self.pos_embd.shape[0], B, X, Y)),
+                paddle.transpose(
+                    paddle.reshape(
+                        selected_pos_embd, (self.pos_embd.shape[0], B, X, Y)
+                    ),
                     (1, 0, 2, 3),
                 )
-                .to(x.device)
+                .to(x.place)
                 .to(x.dtype)
             )  # (B, N_pe, X, Y)
         return selected_pos_embd
@@ -559,8 +563,8 @@ class SongUNetPosEmbd(SongUNet):
         if self.N_grid_channels == 0:
             return None
         elif self.gridtype == "learnable":
-            grid = torch.nn.Parameter(
-                torch.randn(self.N_grid_channels, self.img_shape_y, self.img_shape_x)
+            grid = paddle.nn.Parameter(
+                paddle.randn(self.N_grid_channels, self.img_shape_y, self.img_shape_x)
             )
         elif self.gridtype == "linear":
             if self.N_grid_channels != 2:
@@ -568,7 +572,7 @@ class SongUNetPosEmbd(SongUNet):
             x = np.meshgrid(np.linspace(-1, 1, self.img_shape_y))
             y = np.meshgrid(np.linspace(-1, 1, self.img_shape_x))
             grid_x, grid_y = np.meshgrid(y, x)
-            grid = torch.from_numpy(np.stack((grid_x, grid_y), axis=0))
+            grid = paddle.from_numpy(np.stack((grid_x, grid_y), axis=0))
             grid.requires_grad = False
         elif self.gridtype == "sinusoidal" and self.N_grid_channels == 4:
             # print('sinusuidal grid added ......')
@@ -578,8 +582,8 @@ class SongUNetPosEmbd(SongUNet):
             y2 = np.meshgrid(np.cos(np.linspace(0, 2 * np.pi, self.img_shape_x)))
             grid_x1, grid_y1 = np.meshgrid(y1, x1)
             grid_x2, grid_y2 = np.meshgrid(y2, x2)
-            grid = torch.squeeze(
-                torch.from_numpy(
+            grid = paddle.squeeze(
+                paddle.from_numpy(
                     np.expand_dims(
                         np.stack((grid_x1, grid_y1, grid_x2, grid_y2), axis=0), axis=0
                     )
@@ -600,13 +604,13 @@ class SongUNetPosEmbd(SongUNet):
                 for p_fn in [np.sin, np.cos]:
                     grid_list.append(p_fn(grid_x * freq))
                     grid_list.append(p_fn(grid_y * freq))
-            grid = torch.from_numpy(np.stack(grid_list, axis=0))
+            grid = paddle.from_numpy(np.stack(grid_list, axis=0))
             grid.requires_grad = False
         elif self.gridtype == "test" and self.N_grid_channels == 2:
-            idx_x = torch.arange(self.img_shape_y)
-            idx_y = torch.arange(self.img_shape_x)
-            mesh_x, mesh_y = torch.meshgrid(idx_x, idx_y)
-            grid = torch.stack((mesh_x, mesh_y), dim=0)
+            idx_x = paddle.arange(self.img_shape_y)
+            idx_y = paddle.arange(self.img_shape_x)
+            mesh_x, mesh_y = paddle.meshgrid(idx_x, idx_y)
+            grid = paddle.stack((mesh_x, mesh_y), axis=0)
         else:
             raise ValueError("Gridtype not supported.")
         return grid

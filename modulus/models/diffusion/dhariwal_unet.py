@@ -23,11 +23,11 @@ from dataclasses import dataclass
 from typing import List
 
 import numpy as np
-import torch
-from torch.nn.functional import silu
+import paddle
+from paddle.nn.functional import silu
 
 from modulus.models.diffusion import (
-    Conv2d,
+    Conv2D,
     GroupNorm,
     Linear,
     PositionalEmbedding,
@@ -105,9 +105,9 @@ class DhariwalUNet(Module):
     Example
     --------
     >>> model = DhariwalUNet(img_resolution=16, in_channels=2, out_channels=2)
-    >>> noise_labels = torch.randn([1])
-    >>> class_labels = torch.randint(0, 1, (1, 1))
-    >>> input_image = torch.ones([1, 2, 16, 16])
+    >>> noise_labels = paddle.randn([1])
+    >>> class_labels = paddle.randint(0, 1, (1, 1))
+    >>> input_image = paddle.ones([1, 2, 16, 16])
     >>> output_image = model(input_image, noise_labels, class_labels)
     """
 
@@ -174,14 +174,14 @@ class DhariwalUNet(Module):
         )
 
         # Encoder.
-        self.enc = torch.nn.ModuleDict()
+        self.enc = paddle.nn.LayerDict()
         cout = in_channels
         for level, mult in enumerate(channel_mult):
             res = img_resolution >> level
             if level == 0:
                 cin = cout
                 cout = model_channels * mult
-                self.enc[f"{res}x{res}_conv"] = Conv2d(
+                self.enc[f"{res}x{res}_conv"] = Conv2D(
                     in_channels=cin, out_channels=cout, kernel=3, **init
                 )
             else:
@@ -200,7 +200,7 @@ class DhariwalUNet(Module):
         skips = [block.out_channels for block in self.enc.values()]
 
         # Decoder.
-        self.dec = torch.nn.ModuleDict()
+        self.dec = paddle.nn.LayerDict()
         for level, mult in reversed(list(enumerate(channel_mult))):
             res = img_resolution >> level
             if level == len(channel_mult) - 1:
@@ -224,7 +224,7 @@ class DhariwalUNet(Module):
                     **block_kwargs,
                 )
         self.out_norm = GroupNorm(num_channels=cout)
-        self.out_conv = Conv2d(
+        self.out_conv = Conv2D(
             in_channels=cout, out_channels=out_channels, kernel=3, **init_zero
         )
 
@@ -239,7 +239,8 @@ class DhariwalUNet(Module):
             tmp = class_labels
             if self.training and self.label_dropout:
                 tmp = tmp * (
-                    torch.rand([x.shape[0], 1], device=x.device) >= self.label_dropout
+                    paddle.rand([x.shape[0], 1]).to(device=x.place)
+                    >= self.label_dropout
                 ).to(tmp.dtype)
             emb = emb + self.map_label(tmp)
         emb = silu(emb)
@@ -253,7 +254,7 @@ class DhariwalUNet(Module):
         # Decoder.
         for block in self.dec.values():
             if x.shape[1] != block.in_channels:
-                x = torch.cat([x, skips.pop()], dim=1)
+                x = paddle.concat([x, skips.pop()], dim=1)
             x = block(x, emb)
         x = self.out_conv(silu(self.out_norm(x)))
         return x

@@ -17,10 +17,10 @@
 from dataclasses import dataclass
 from typing import List, Tuple, Union
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch import Tensor
+import paddle
+import paddle.nn as nn
+import paddle.nn.functional as F
+from paddle import Tensor
 
 import modulus  # noqa: F401 for docs
 import modulus.models.layers as layers
@@ -36,7 +36,7 @@ from ..module import Module
 # ===================================================================
 
 
-class FNO1DEncoder(nn.Module):
+class FNO1DEncoder(nn.Layer):
     """1D Spectral encoder for FNO
 
     Parameters
@@ -53,7 +53,7 @@ class FNO1DEncoder(nn.Module):
         Domain padding for spectral convolutions, by default 8
     padding_type : str, optional
         Type of padding for spectral convolutions, by default "constant"
-    activation_fn : nn.Module, optional
+    activation_fn : nn.Layer, optional
         Activation function, by default nn.GELU
     coord_features : bool, optional
         Use coordinate grid as additional feature map, by default True
@@ -67,7 +67,7 @@ class FNO1DEncoder(nn.Module):
         num_fno_modes: Union[int, List[int]] = 16,
         padding: Union[int, List[int]] = 8,
         padding_type: str = "constant",
-        activation_fn: nn.Module = nn.GELU(),
+        activation_fn: nn.Layer = nn.GELU(),
         coord_features: bool = True,
     ) -> None:
         super().__init__()
@@ -98,7 +98,7 @@ class FNO1DEncoder(nn.Module):
 
     def build_lift_network(self) -> None:
         """construct network for lifting variables to latent space."""
-        self.lift_network = torch.nn.Sequential()
+        self.lift_network = paddle.nn.Sequential()
         self.lift_network.append(
             layers.Conv1dFCLayer(self.in_channels, int(self.fno_width / 2))
         )
@@ -116,8 +116,8 @@ class FNO1DEncoder(nn.Module):
 
         """
         # Build Neural Fourier Operators
-        self.spconv_layers = nn.ModuleList()
-        self.conv_layers = nn.ModuleList()
+        self.spconv_layers = nn.LayerList()
+        self.conv_layers = nn.LayerList()
         for _ in range(self.num_fno_layers):
             self.spconv_layers.append(
                 layers.SpectralConv1d(self.fno_width, self.fno_width, num_fno_modes[0])
@@ -126,8 +126,8 @@ class FNO1DEncoder(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         if self.coord_features:
-            coord_feat = self.meshgrid(list(x.shape), x.device)
-            x = torch.cat((x, coord_feat), dim=1)
+            coord_feat = self.meshgrid(list(x.shape), x.place)
+            x = paddle.concat((x, coord_feat), axis=1)
 
         x = self.lift_network(x)
         # (left, right)
@@ -143,14 +143,14 @@ class FNO1DEncoder(nn.Module):
         x = x[..., : self.ipad[0]]
         return x
 
-    def meshgrid(self, shape: List[int], device: torch.device) -> Tensor:
+    def meshgrid(self, shape: List[int], device: str) -> Tensor:
         """Creates 1D meshgrid feature
 
         Parameters
         ----------
         shape : List[int]
             Tensor shape
-        device : torch.device
+        device : str
             Device model is on
 
         Returns
@@ -159,8 +159,8 @@ class FNO1DEncoder(nn.Module):
             Meshgrid tensor
         """
         bsize, size_x = shape[0], shape[2]
-        grid_x = torch.linspace(0, 1, size_x, dtype=torch.float32, device=device)
-        grid_x = grid_x.unsqueeze(0).unsqueeze(0).repeat(bsize, 1, 1)
+        grid_x = paddle.linspace(0, 1, size_x, dtype=paddle.float32).to(device)
+        grid_x = grid_x.unsqueeze(0).unsqueeze(0).tile([bsize, 1, 1])
         return grid_x
 
     def grid_to_points(self, value: Tensor) -> Tuple[Tensor, List[int]]:
@@ -175,9 +175,9 @@ class FNO1DEncoder(nn.Module):
         Tuple
             Tensor, meshgrid shape
         """
-        y_shape = list(value.size())
-        output = torch.permute(value, (0, 2, 1))
-        return output.reshape(-1, output.size(-1)), y_shape
+        y_shape = list(value.shape)
+        output = paddle.transpose(value, (0, 2, 1))
+        return output.reshape([-1, output.shape[-1]]), y_shape
 
     def points_to_grid(self, value: Tensor, shape: List[int]) -> Tensor:
         """converting from point based to grid based (image) representation
@@ -194,8 +194,8 @@ class FNO1DEncoder(nn.Module):
         Tensor
             Meshgrid tensor
         """
-        output = value.reshape(shape[0], shape[2], value.size(-1))
-        return torch.permute(output, (0, 2, 1))
+        output = value.reshape([shape[0], shape[2], value.shape[-1]])
+        return paddle.transpose(output, (0, 2, 1))
 
 
 # ===================================================================
@@ -205,7 +205,7 @@ class FNO1DEncoder(nn.Module):
 # ===================================================================
 
 
-class FNO2DEncoder(nn.Module):
+class FNO2DEncoder(nn.Layer):
     """2D Spectral encoder for FNO
 
     Parameters
@@ -222,7 +222,7 @@ class FNO2DEncoder(nn.Module):
         Domain padding for spectral convolutions, by default 8
     padding_type : str, optional
         Type of padding for spectral convolutions, by default "constant"
-    activation_fn : nn.Module, optional
+    activation_fn : nn.Layer, optional
         Activation function, by default nn.GELU
     coord_features : bool, optional
         Use coordinate grid as additional feature map, by default True
@@ -236,7 +236,7 @@ class FNO2DEncoder(nn.Module):
         num_fno_modes: Union[int, List[int]] = 16,
         padding: Union[int, List[int]] = 8,
         padding_type: str = "constant",
-        activation_fn: nn.Module = nn.GELU(),
+        activation_fn: nn.Layer = nn.GELU(),
         coord_features: bool = True,
     ) -> None:
         super().__init__()
@@ -268,7 +268,7 @@ class FNO2DEncoder(nn.Module):
     def build_lift_network(self) -> None:
         """construct network for lifting variables to latent space."""
         # Initial lift network
-        self.lift_network = torch.nn.Sequential()
+        self.lift_network = paddle.nn.Sequential()
         self.lift_network.append(
             layers.Conv2dFCLayer(self.in_channels, int(self.fno_width / 2))
         )
@@ -286,15 +286,15 @@ class FNO2DEncoder(nn.Module):
 
         """
         # Build Neural Fourier Operators
-        self.spconv_layers = nn.ModuleList()
-        self.conv_layers = nn.ModuleList()
+        self.spconv_layers = nn.LayerList()
+        self.conv_layers = nn.LayerList()
         for _ in range(self.num_fno_layers):
             self.spconv_layers.append(
                 layers.SpectralConv2d(
                     self.fno_width, self.fno_width, num_fno_modes[0], num_fno_modes[1]
                 )
             )
-            self.conv_layers.append(nn.Conv2d(self.fno_width, self.fno_width, 1))
+            self.conv_layers.append(nn.Conv2D(self.fno_width, self.fno_width, 1))
 
     def forward(self, x: Tensor) -> Tensor:
         if x.dim() != 4:
@@ -303,8 +303,8 @@ class FNO2DEncoder(nn.Module):
             )
 
         if self.coord_features:
-            coord_feat = self.meshgrid(list(x.shape), x.device)
-            x = torch.cat((x, coord_feat), dim=1)
+            coord_feat = self.meshgrid(list(x.shape), x.place)
+            x = paddle.concat((x, coord_feat), axis=1)
 
         x = self.lift_network(x)
         # (left, right, top, bottom)
@@ -322,14 +322,14 @@ class FNO2DEncoder(nn.Module):
 
         return x
 
-    def meshgrid(self, shape: List[int], device: torch.device) -> Tensor:
+    def meshgrid(self, shape: List[int], device: str) -> Tensor:
         """Creates 2D meshgrid feature
 
         Parameters
         ----------
         shape : List[int]
             Tensor shape
-        device : torch.device
+        device : str
             Device model is on
 
         Returns
@@ -338,12 +338,12 @@ class FNO2DEncoder(nn.Module):
             Meshgrid tensor
         """
         bsize, size_x, size_y = shape[0], shape[2], shape[3]
-        grid_x = torch.linspace(0, 1, size_x, dtype=torch.float32, device=device)
-        grid_y = torch.linspace(0, 1, size_y, dtype=torch.float32, device=device)
-        grid_x, grid_y = torch.meshgrid(grid_x, grid_y, indexing="ij")
-        grid_x = grid_x.unsqueeze(0).unsqueeze(0).repeat(bsize, 1, 1, 1)
-        grid_y = grid_y.unsqueeze(0).unsqueeze(0).repeat(bsize, 1, 1, 1)
-        return torch.cat((grid_x, grid_y), dim=1)
+        grid_x = paddle.linspace(0, 1, size_x, dtype=paddle.float32).to(device)
+        grid_y = paddle.linspace(0, 1, size_y, dtype=paddle.float32).to(device)
+        grid_x, grid_y = paddle.meshgrid(grid_x, grid_y, indexing="ij")
+        grid_x = grid_x.unsqueeze(0).unsqueeze(0).tile([bsize, 1, 1, 1])
+        grid_y = grid_y.unsqueeze(0).unsqueeze(0).tile([bsize, 1, 1, 1])
+        return paddle.concat((grid_x, grid_y), axis=1)
 
     def grid_to_points(self, value: Tensor) -> Tuple[Tensor, List[int]]:
         """converting from grid based (image) to point based representation
@@ -357,9 +357,9 @@ class FNO2DEncoder(nn.Module):
         Tuple
             Tensor, meshgrid shape
         """
-        y_shape = list(value.size())
-        output = torch.permute(value, (0, 2, 3, 1))
-        return output.reshape(-1, output.size(-1)), y_shape
+        y_shape = list(value.shape)
+        output = paddle.transpose(value, (0, 2, 3, 1))
+        return output.reshape([-1, output.shape[-1]]), y_shape
 
     def points_to_grid(self, value: Tensor, shape: List[int]) -> Tensor:
         """converting from point based to grid based (image) representation
@@ -376,8 +376,8 @@ class FNO2DEncoder(nn.Module):
         Tensor
             Meshgrid tensor
         """
-        output = value.reshape(shape[0], shape[2], shape[3], value.size(-1))
-        return torch.permute(output, (0, 3, 1, 2))
+        output = value.reshape([shape[0], shape[2], shape[3], value.shape[-1]])
+        return paddle.transpose(output, (0, 3, 1, 2))
 
 
 # ===================================================================
@@ -387,7 +387,7 @@ class FNO2DEncoder(nn.Module):
 # ===================================================================
 
 
-class FNO3DEncoder(nn.Module):
+class FNO3DEncoder(nn.Layer):
     """3D Spectral encoder for FNO
 
     Parameters
@@ -404,7 +404,7 @@ class FNO3DEncoder(nn.Module):
         Domain padding for spectral convolutions, by default 8
     padding_type : str, optional
         Type of padding for spectral convolutions, by default "constant"
-    activation_fn : nn.Module, optional
+    activation_fn : nn.Layer, optional
         Activation function, by default nn.GELU
     coord_features : bool, optional
         Use coordinate grid as additional feature map, by default True
@@ -418,7 +418,7 @@ class FNO3DEncoder(nn.Module):
         num_fno_modes: Union[int, List[int]] = 16,
         padding: Union[int, List[int]] = 8,
         padding_type: str = "constant",
-        activation_fn: nn.Module = nn.GELU(),
+        activation_fn: nn.Layer = nn.GELU(),
         coord_features: bool = True,
     ) -> None:
         super().__init__()
@@ -451,7 +451,7 @@ class FNO3DEncoder(nn.Module):
     def build_lift_network(self) -> None:
         """construct network for lifting variables to latent space."""
         # Initial lift network
-        self.lift_network = torch.nn.Sequential()
+        self.lift_network = paddle.nn.Sequential()
         self.lift_network.append(
             layers.Conv3dFCLayer(self.in_channels, int(self.fno_width / 2))
         )
@@ -469,8 +469,8 @@ class FNO3DEncoder(nn.Module):
 
         """
         # Build Neural Fourier Operators
-        self.spconv_layers = nn.ModuleList()
-        self.conv_layers = nn.ModuleList()
+        self.spconv_layers = nn.LayerList()
+        self.conv_layers = nn.LayerList()
         for _ in range(self.num_fno_layers):
             self.spconv_layers.append(
                 layers.SpectralConv3d(
@@ -481,12 +481,12 @@ class FNO3DEncoder(nn.Module):
                     num_fno_modes[2],
                 )
             )
-            self.conv_layers.append(nn.Conv3d(self.fno_width, self.fno_width, 1))
+            self.conv_layers.append(nn.Conv3D(self.fno_width, self.fno_width, 1))
 
     def forward(self, x: Tensor) -> Tensor:
         if self.coord_features:
-            coord_feat = self.meshgrid(list(x.shape), x.device)
-            x = torch.cat((x, coord_feat), dim=1)
+            coord_feat = self.meshgrid(list(x.shape), x.place)
+            x = paddle.concat((x, coord_feat), axis=1)
 
         x = self.lift_network(x)
         # (left, right, top, bottom, front, back)
@@ -506,14 +506,14 @@ class FNO3DEncoder(nn.Module):
         x = x[..., : self.ipad[0], : self.ipad[1], : self.ipad[2]]
         return x
 
-    def meshgrid(self, shape: List[int], device: torch.device) -> Tensor:
+    def meshgrid(self, shape: List[int], device: str) -> Tensor:
         """Creates 3D meshgrid feature
 
         Parameters
         ----------
         shape : List[int]
             Tensor shape
-        device : torch.device
+        device : str
             Device model is on
 
         Returns
@@ -522,14 +522,14 @@ class FNO3DEncoder(nn.Module):
             Meshgrid tensor
         """
         bsize, size_x, size_y, size_z = shape[0], shape[2], shape[3], shape[4]
-        grid_x = torch.linspace(0, 1, size_x, dtype=torch.float32, device=device)
-        grid_y = torch.linspace(0, 1, size_y, dtype=torch.float32, device=device)
-        grid_z = torch.linspace(0, 1, size_z, dtype=torch.float32, device=device)
-        grid_x, grid_y, grid_z = torch.meshgrid(grid_x, grid_y, grid_z, indexing="ij")
-        grid_x = grid_x.unsqueeze(0).unsqueeze(0).repeat(bsize, 1, 1, 1, 1)
-        grid_y = grid_y.unsqueeze(0).unsqueeze(0).repeat(bsize, 1, 1, 1, 1)
-        grid_z = grid_z.unsqueeze(0).unsqueeze(0).repeat(bsize, 1, 1, 1, 1)
-        return torch.cat((grid_x, grid_y, grid_z), dim=1)
+        grid_x = paddle.linspace(0, 1, size_x, dtype=paddle.float32).to(device)
+        grid_y = paddle.linspace(0, 1, size_y, dtype=paddle.float32).to(device)
+        grid_z = paddle.linspace(0, 1, size_z, dtype=paddle.float32).to(device)
+        grid_x, grid_y, grid_z = paddle.meshgrid(grid_x, grid_y, grid_z, indexing="ij")
+        grid_x = grid_x.unsqueeze(0).unsqueeze(0).tile([bsize, 1, 1, 1, 1])
+        grid_y = grid_y.unsqueeze(0).unsqueeze(0).tile([bsize, 1, 1, 1, 1])
+        grid_z = grid_z.unsqueeze(0).unsqueeze(0).tile([bsize, 1, 1, 1, 1])
+        return paddle.concat((grid_x, grid_y, grid_z), axis=1)
 
     def grid_to_points(self, value: Tensor) -> Tuple[Tensor, List[int]]:
         """converting from grid based (image) to point based representation
@@ -543,9 +543,9 @@ class FNO3DEncoder(nn.Module):
         Tuple
             Tensor, meshgrid shape
         """
-        y_shape = list(value.size())
-        output = torch.permute(value, (0, 2, 3, 4, 1))
-        return output.reshape(-1, output.size(-1)), y_shape
+        y_shape = list(value.shape)
+        output = paddle.transpose(value, (0, 2, 3, 4, 1))
+        return output.reshape([-1, output.shape[-1]]), y_shape
 
     def points_to_grid(self, value: Tensor, shape: List[int]) -> Tensor:
         """converting from point based to grid based (image) representation
@@ -562,8 +562,10 @@ class FNO3DEncoder(nn.Module):
         Tensor
             Meshgrid tensor
         """
-        output = value.reshape(shape[0], shape[2], shape[3], shape[4], value.size(-1))
-        return torch.permute(output, (0, 4, 1, 2, 3))
+        output = value.reshape(
+            [shape[0], shape[2], shape[3], shape[4], value.shape[-1]]
+        )
+        return paddle.transpose(output, (0, 4, 1, 2, 3))
 
 
 # ===================================================================
@@ -573,7 +575,7 @@ class FNO3DEncoder(nn.Module):
 # ===================================================================
 
 
-class FNO4DEncoder(nn.Module):
+class FNO4DEncoder(nn.Layer):
     """4D Spectral encoder for FNO
 
     Parameters
@@ -590,7 +592,7 @@ class FNO4DEncoder(nn.Module):
         Domain padding for spectral convolutions, by default 8
     padding_type : str, optional
         Type of padding for spectral convolutions, by default "constant"
-    activation_fn : nn.Module, optional
+    activation_fn : nn.Layer, optional
         Activation function, by default nn.GELU
     coord_features : bool, optional
         Use coordinate grid as additional feature map, by default True
@@ -604,7 +606,7 @@ class FNO4DEncoder(nn.Module):
         num_fno_modes: Union[int, List[int]] = 16,
         padding: Union[int, List[int]] = 8,
         padding_type: str = "constant",
-        activation_fn: nn.Module = nn.GELU(),
+        activation_fn: nn.Layer = nn.GELU(),
         coord_features: bool = True,
     ) -> None:
         super().__init__()
@@ -637,7 +639,7 @@ class FNO4DEncoder(nn.Module):
     def build_lift_network(self) -> None:
         """construct network for lifting variables to latent space."""
         # Initial lift network
-        self.lift_network = torch.nn.Sequential()
+        self.lift_network = paddle.nn.Sequential()
         self.lift_network.append(
             layers.ConvNdFCLayer(self.in_channels, int(self.fno_width / 2))
         )
@@ -655,8 +657,8 @@ class FNO4DEncoder(nn.Module):
 
         """
         # Build Neural Fourier Operators
-        self.spconv_layers = nn.ModuleList()
-        self.conv_layers = nn.ModuleList()
+        self.spconv_layers = nn.LayerList()
+        self.conv_layers = nn.LayerList()
         for _ in range(self.num_fno_layers):
             self.spconv_layers.append(
                 layers.SpectralConv4d(
@@ -674,8 +676,8 @@ class FNO4DEncoder(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         if self.coord_features:
-            coord_feat = self.meshgrid(list(x.shape), x.device)
-            x = torch.cat((x, coord_feat), dim=1)
+            coord_feat = self.meshgrid(list(x.shape), x.place)
+            x = paddle.concat((x, coord_feat), axis=1)
 
         x = self.lift_network(x)
         # (left, right, top, bottom, front, back, past, future)
@@ -695,14 +697,14 @@ class FNO4DEncoder(nn.Module):
         x = x[..., : self.ipad[0], : self.ipad[1], : self.ipad[2], : self.ipad[3]]
         return x
 
-    def meshgrid(self, shape: List[int], device: torch.device) -> Tensor:
+    def meshgrid(self, shape: List[int], device: str) -> Tensor:
         """Creates 4D meshgrid feature
 
         Parameters
         ----------
         shape : List[int]
             Tensor shape
-        device : torch.device
+        device : str
             Device model is on
 
         Returns
@@ -717,18 +719,18 @@ class FNO4DEncoder(nn.Module):
             shape[4],
             shape[5],
         )
-        grid_x = torch.linspace(0, 1, size_x, dtype=torch.float32, device=device)
-        grid_y = torch.linspace(0, 1, size_y, dtype=torch.float32, device=device)
-        grid_z = torch.linspace(0, 1, size_z, dtype=torch.float32, device=device)
-        grid_t = torch.linspace(0, 1, size_t, dtype=torch.float32, device=device)
-        grid_x, grid_y, grid_z, grid_t = torch.meshgrid(
+        grid_x = paddle.linspace(0, 1, size_x, dtype=paddle.float32).to(device)
+        grid_y = paddle.linspace(0, 1, size_y, dtype=paddle.float32).to(device)
+        grid_z = paddle.linspace(0, 1, size_z, dtype=paddle.float32).to(device)
+        grid_t = paddle.linspace(0, 1, size_t, dtype=paddle.float32).to(device)
+        grid_x, grid_y, grid_z, grid_t = paddle.meshgrid(
             grid_x, grid_y, grid_z, grid_t, indexing="ij"
         )
-        grid_x = grid_x.unsqueeze(0).unsqueeze(0).repeat(bsize, 1, 1, 1, 1, 1)
-        grid_y = grid_y.unsqueeze(0).unsqueeze(0).repeat(bsize, 1, 1, 1, 1, 1)
-        grid_z = grid_z.unsqueeze(0).unsqueeze(0).repeat(bsize, 1, 1, 1, 1, 1)
-        grid_t = grid_t.unsqueeze(0).unsqueeze(0).repeat(bsize, 1, 1, 1, 1, 1)
-        return torch.cat((grid_x, grid_y, grid_z, grid_t), dim=1)
+        grid_x = grid_x.unsqueeze(0).unsqueeze(0).tile([bsize, 1, 1, 1, 1, 1])
+        grid_y = grid_y.unsqueeze(0).unsqueeze(0).tile([bsize, 1, 1, 1, 1, 1])
+        grid_z = grid_z.unsqueeze(0).unsqueeze(0).tile([bsize, 1, 1, 1, 1, 1])
+        grid_t = grid_t.unsqueeze(0).unsqueeze(0).tile([bsize, 1, 1, 1, 1, 1])
+        return paddle.concat((grid_x, grid_y, grid_z, grid_t), axis=1)
 
     def grid_to_points(self, value: Tensor) -> Tuple[Tensor, List[int]]:
         """converting from grid based (image) to point based representation
@@ -742,9 +744,9 @@ class FNO4DEncoder(nn.Module):
         Tuple
             Tensor, meshgrid shape
         """
-        y_shape = list(value.size())
-        output = torch.permute(value, (0, 2, 3, 4, 5, 1))
-        return output.reshape(-1, output.size(-1)), y_shape
+        y_shape = list(value.shape)
+        output = paddle.transpose(value, (0, 2, 3, 4, 5, 1))
+        return output.reshape([-1, output.shape[-1]]), y_shape
 
     def points_to_grid(self, value: Tensor, shape: List[int]) -> Tensor:
         """converting from point based to grid based (image) representation
@@ -762,9 +764,9 @@ class FNO4DEncoder(nn.Module):
             Meshgrid tensor
         """
         output = value.reshape(
-            shape[0], shape[2], shape[3], shape[4], shape[5], value.size(-1)
+            [shape[0], shape[2], shape[3], shape[4], shape[5], value.shape[-1]]
         )
-        return torch.permute(output, (0, 5, 1, 2, 3, 4))
+        return paddle.transpose(output, (0, 5, 1, 2, 3, 4))
 
 
 # ===================================================================
@@ -779,7 +781,7 @@ class MetaData(ModelMetaData):
     name: str = "FourierNeuralOperator"
     # Optimization
     jit: bool = True
-    cuda_graphs: bool = True
+    cuda_graphs: bool = False
     amp: bool = False
     # Inference
     onnx_cpu: bool = False
@@ -841,10 +843,10 @@ class FNO(Module):
     ...     num_fno_layers=2,
     ...     padding=0,
     ... )
-    >>> input = torch.randn(32, 4, 32, 32) #(N, C, H, W)
+    >>> input = paddle.randn(32, 4, 32, 32) #(N, C, H, W)
     >>> output = model(input)
-    >>> output.size()
-    torch.Size([32, 3, 32, 32])
+    >>> output.shape
+    paddle.Size([32, 3, 32, 32])
 
     Note
     ----

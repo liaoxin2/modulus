@@ -17,12 +17,12 @@
 import math
 
 import numpy as np
-import torch
-import torch.nn as nn
-from torch import Tensor
+import paddle
+import paddle.nn as nn
+from paddle import Tensor
 
 
-class FourierLayer(nn.Module):
+class FourierLayer(nn.Layer):
     """Fourier layer used in the Fourier feature network"""
 
     def __init__(
@@ -72,22 +72,22 @@ class FourierLayer(nn.Module):
         else:
             np_f = frequencies  # [nr_freq, in_features]
 
-        frequencies = torch.tensor(np_f, dtype=torch.get_default_dtype())
+        frequencies = paddle.to_tensor(np_f, dtype=paddle.get_default_dtype())
         frequencies = frequencies.t().contiguous()
         self.register_buffer("frequencies", frequencies)
 
     def out_features(self) -> int:
-        return int(self.frequencies.size(1) * 2)
+        return int(self.frequencies.shape[1] * 2)
 
     def forward(self, x: Tensor) -> Tensor:
-        x_hat = torch.matmul(x, self.frequencies)
-        x_sin = torch.sin(2.0 * math.pi * x_hat)
-        x_cos = torch.cos(2.0 * math.pi * x_hat)
-        x_i = torch.cat([x_sin, x_cos], dim=-1)
+        x_hat = paddle.matmul(x, self.frequencies)
+        x_sin = paddle.sin(2.0 * math.pi * x_hat)
+        x_cos = paddle.cos(2.0 * math.pi * x_hat)
+        x_i = paddle.concat([x_sin, x_cos], axis=-1)
         return x_i
 
 
-class FourierFilter(nn.Module):
+class FourierFilter(nn.Layer):
     """Fourier filter used in the multiplicative filter network"""
 
     def __init__(
@@ -101,26 +101,32 @@ class FourierFilter(nn.Module):
 
         self.weight_scale = input_scale / math.sqrt(nr_layers + 1)
 
-        self.frequency = nn.Parameter(torch.empty(in_features, layer_size))
+        self.frequency = self.create_parameter(
+            [in_features, layer_size],
+            default_initializer=nn.initializer.Constant(0),
+        )
         # The shape of phase tensor was supposed to be [1, layer_size], but it has issue
         # with batched tensor in FuncArch.
         # We could just rely on broadcast here.
-        self.phase = nn.Parameter(torch.empty(layer_size))
+        self.phase = self.create_parameter(
+            [layer_size],
+            default_initializer=nn.initializer.Constant(0),
+        )
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
         """Resets parameters"""
-        nn.init.xavier_uniform_(self.frequency)
-        nn.init.uniform_(self.phase, -math.pi, math.pi)
+        nn.initializer.XavierUniform()(self.frequency)
+        nn.initializer.Uniform(-math.pi, math.pi)(self.phase)
 
     def forward(self, x: Tensor) -> Tensor:
         frequency = self.weight_scale * self.frequency
 
-        x_i = torch.sin(torch.matmul(x, 2.0 * math.pi * frequency) + self.phase)
+        x_i = paddle.sin(paddle.matmul(x, 2.0 * math.pi * frequency) + self.phase)
         return x_i
 
 
-class GaborFilter(nn.Module):
+class GaborFilter(nn.Layer):
     """Gabor filter used in the multiplicative filter network"""
 
     def __init__(
@@ -140,21 +146,33 @@ class GaborFilter(nn.Module):
 
         self.weight_scale = input_scale / math.sqrt(nr_layers + 1)
 
-        self.frequency = nn.Parameter(torch.empty(in_features, layer_size))
-        self.phase = nn.Parameter(torch.empty(layer_size))
-        self.mu = nn.Parameter(torch.empty(in_features, layer_size))
-        self.gamma = nn.Parameter(torch.empty(layer_size))
+        self.frequency = self.create_parameter(
+            [in_features, layer_size],
+            default_initializer=nn.initializer.Constant(0),
+        )
+        self.phase = self.create_parameter(
+            [layer_size],
+            default_initializer=nn.initializer.Constant(0),
+        )
+        self.mu = self.create_parameter(
+            [in_features, layer_size],
+            default_initializer=nn.initializer.Constant(0),
+        )
+        self.gamma = self.create_parameter(
+            [layer_size],
+            default_initializer=nn.initializer.Constant(0),
+        )
 
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
         """Resets parameters"""
-        nn.init.xavier_uniform_(self.frequency)
-        nn.init.uniform_(self.phase, -math.pi, math.pi)
-        nn.init.uniform_(self.mu, -1.0, 1.0)
-        with torch.no_grad():
+        nn.initializer.XavierUniform()(self.frequency)
+        nn.initializer.Uniform(-math.pi, math.pi)(self.phase)
+        nn.initializer.Uniform(-1.0, 1.0)(self.mu)
+        with paddle.no_grad():
             self.gamma.copy_(
-                torch.from_numpy(
+                paddle.from_numpy(
                     np.random.gamma(self.alpha, 1.0 / self.beta, (self.layer_size)),
                 )
             )
@@ -165,7 +183,7 @@ class GaborFilter(nn.Module):
         x_c = x.unsqueeze(-1)
         x_c = x_c - self.mu
         # The norm dim changed from 1 to -2 to be compatible with BatchedTensor
-        x_c = torch.square(x_c.norm(p=2, dim=-2))
-        x_c = torch.exp(-0.5 * x_c * self.gamma)
-        x_i = x_c * torch.sin(torch.matmul(x, 2.0 * math.pi * frequency) + self.phase)
+        x_c = paddle.square(x_c.norm(p=2, axis=-2))
+        x_c = paddle.exp(-0.5 * x_c * self.gamma)
+        x_i = x_c * paddle.sin(paddle.matmul(x, 2.0 * math.pi * frequency) + self.phase)
         return x_i

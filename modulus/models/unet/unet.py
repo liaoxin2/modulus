@@ -17,15 +17,15 @@
 from dataclasses import dataclass
 from typing import List, Optional, Union
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import paddle
+import paddle.nn as nn
+import paddle.nn.functional as F
 
 from ..meta import ModelMetaData
 from ..module import Module
 
 
-class ConvBlock(nn.Module):
+class ConvBlock(nn.Layer):
     """
     A convolutional block, followed by an optional normalization and activation.
 
@@ -46,7 +46,7 @@ class ConvBlock(nn.Module):
 
     Returns:
     -------
-        torch.Tensor: The processed output tensor.
+        paddle.Tensor: The processed output tensor.
     """
 
     def __init__(
@@ -66,7 +66,7 @@ class ConvBlock(nn.Module):
     ):
         super().__init__()
         # Initialize convolution layer
-        self.conv3d = nn.Conv3d(
+        self.conv3d = nn.Conv3D(
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
@@ -97,7 +97,7 @@ class ConvBlock(nn.Module):
                 }
                 self.norm = nn.GroupNorm(**norm_args)
             elif normalization == "batchnorm":
-                self.norm = nn.BatchNorm3d(out_channels)
+                self.norm = nn.BatchNorm3D(out_channels)
             else:
                 raise ValueError(
                     f"Normalization type '{normalization}' is not supported."
@@ -105,14 +105,14 @@ class ConvBlock(nn.Module):
         else:
             self.norm = nn.Identity()
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: paddle.Tensor) -> paddle.Tensor:
         x = self.conv3d(x)
         x = self.norm(x)
         x = self.activation(x)
         return x
 
 
-class ConvTranspose(nn.Module):
+class ConvTranspose(nn.Layer):
     """
     A transposed convolutional block, followed by an optional normalization and activation.
 
@@ -134,7 +134,7 @@ class ConvTranspose(nn.Module):
 
     Returns:
     -------
-        torch.Tensor: The processed output tensor.
+        paddle.Tensor: The processed output tensor.
     """
 
     def __init__(
@@ -155,7 +155,7 @@ class ConvTranspose(nn.Module):
     ):
         super().__init__()
         # Initialize transposed convolution layer
-        self.conv3d_transpose = nn.ConvTranspose3d(
+        self.conv3d_transpose = nn.Conv3DTranspose(
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
@@ -187,7 +187,7 @@ class ConvTranspose(nn.Module):
                 }
                 self.norm = nn.GroupNorm(**norm_args)
             elif normalization == "batchnorm":
-                self.norm = nn.BatchNorm3d(out_channels)
+                self.norm = nn.BatchNorm3D(out_channels)
             else:
                 raise ValueError(
                     f"Normalization type '{normalization}' is not supported."
@@ -195,35 +195,35 @@ class ConvTranspose(nn.Module):
         else:
             self.norm = nn.Identity()
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: paddle.Tensor) -> paddle.Tensor:
         x = self.conv3d_transpose(x)
         x = self.norm(x)
         x = self.activation(x)
         return x
 
 
-class Pool3d(nn.Module):
+class Pool3d(nn.Layer):
     """
     A pooling block that applies a specified 3D pooling operation over an input signal.
 
     Parameters:
     ----------
-        pooling_type (str): Type of pooling operation ('AvgPool3d', 'MaxPool3d', or custom types if supported).
+        pooling_type (str): Type of pooling operation ('AvgPool3D', 'MaxPool3D', or custom types if supported).
         kernel_size (int, tuple): Size of the window to take a pool over.
         stride (int, tuple, None): Stride of the pooling operation. Default is None (same as kernel_size).
         padding (int, tuple): Implicit zero padding to be added on both sides of the input. Default is 0.
         dilation (int, tuple): Control the spacing between the kernel points; useful for dilated pooling. Default is 1.
         ceil_mode (bool): When True, will use ceil instead of floor to compute the output shape. Default is False.
-        count_include_pad (bool): Only used for AvgPool3d. If True, will include the zero-padding in the averaging calculation.
+        count_include_pad (bool): Only used for AvgPool3D. If True, will include the zero-padding in the averaging calculation.
 
     Returns:
     -------
-        torch.Tensor: The processed output tensor.
+        paddle.Tensor: The processed output tensor.
     """
 
     def __init__(
         self,
-        pooling_type: str = "AvgPool3d",
+        pooling_type: str = "AvgPool3D",
         kernel_size: Union[int, tuple] = 2,
         stride: Optional[Union[int, tuple]] = None,
         padding: Union[int, tuple] = 0,
@@ -231,25 +231,28 @@ class Pool3d(nn.Module):
         ceil_mode: bool = False,
         count_include_pad: bool = True,
     ):
+        if dilation == 1:
+            raise NotImplementedError("Dilation is not supported for pooling layer")
+
         super().__init__()
 
         # Validate pooling type and initialize pooling layer
-        if pooling_type not in ["AvgPool3d", "MaxPool3d"]:
+        if pooling_type not in ["AvgPool3D", "MaxPool3D"]:
             raise ValueError(
-                f"Invalid pooling_type '{pooling_type}'. Please choose from ['AvgPool3d', 'MaxPool3d'] or implement additional types."
+                f"Invalid pooling_type '{pooling_type}'. Please choose from ['AvgPool3D', 'MaxPool3D'] or implement additional types."
             )
 
         # Initialize the corresponding pooling layer
-        if pooling_type == "AvgPool3d":
-            self.pooling = nn.AvgPool3d(
+        if pooling_type == "AvgPool3D":
+            self.pooling = nn.AvgPool3D(
                 kernel_size=kernel_size,
                 stride=stride,
                 padding=padding,
                 ceil_mode=ceil_mode,
                 count_include_pad=count_include_pad,
             )
-        elif pooling_type == "MaxPool3d":
-            self.pooling = nn.MaxPool3d(
+        elif pooling_type == "MaxPool3D":
+            self.pooling = nn.MaxPool3D(
                 kernel_size=kernel_size,
                 stride=stride,
                 padding=padding,
@@ -257,11 +260,11 @@ class Pool3d(nn.Module):
                 ceil_mode=ceil_mode,
             )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: paddle.Tensor) -> paddle.Tensor:
         return self.pooling(x)
 
 
-class EncoderBlock(nn.Module):
+class EncoderBlock(nn.Layer):
     """
     An encoder block that sequentially applies multiple convolutional blocks followed by a pooling operation, aggregating features at multiple scales.
 
@@ -272,12 +275,12 @@ class EncoderBlock(nn.Module):
         model_depth (int): Number of times the conv-pool operation should be repeated.
         num_conv_blocks (int): Number of convolutional blocks per depth level.
         activation (Optional[str]): Type of activation to use. Default is 'relu'.
-        pooling_type (str): Type of pooling to use ('AvgPool3d', 'MaxPool3d').
+        pooling_type (str): Type of pooling to use ('AvgPool3D', 'MaxPool3D').
         pool_size (int): Size of the window for the pooling operation.
 
     Returns:
     -------
-        torch.Tensor: The processed output tensor.
+        paddle.Tensor: The processed output tensor.
     """
 
     def __init__(
@@ -287,7 +290,7 @@ class EncoderBlock(nn.Module):
         model_depth: int = 4,
         num_conv_blocks: int = 2,
         activation: Optional[str] = "relu",
-        pooling_type: str = "AvgPool3d",
+        pooling_type: str = "AvgPool3D",
         pool_size: int = 2,
     ):
         super().__init__()
@@ -297,7 +300,7 @@ class EncoderBlock(nn.Module):
                 "The length of feature_map_channels should be equal to model_depth * num_conv_blocks"
             )
 
-        self.layers = nn.ModuleList()
+        self.layers = nn.LayerList()
         current_channels = in_channels
 
         for depth in range(model_depth):
@@ -318,13 +321,13 @@ class EncoderBlock(nn.Module):
                     Pool3d(pooling_type=pooling_type, kernel_size=pool_size)
                 )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: paddle.Tensor) -> paddle.Tensor:
         for layer in self.layers:
             x = layer(x)
         return x
 
 
-class DecoderBlock(nn.Module):
+class DecoderBlock(nn.Layer):
     """
     A decoder block that sequentially applies multiple transposed convolutional blocks, optionally concatenating features from the corresponding encoder.
 
@@ -339,7 +342,7 @@ class DecoderBlock(nn.Module):
 
     Returns:
     -------
-        torch.Tensor: The processed output tensor.
+        paddle.Tensor: The processed output tensor.
     """
 
     def __init__(
@@ -358,7 +361,7 @@ class DecoderBlock(nn.Module):
                 "The length of feature_map_channels in the decoder block should be equal to model_depth * num_conv_blocks + 1"
             )
 
-        self.layers = nn.ModuleList()
+        self.layers = nn.LayerList()
         current_channels = feature_map_channels[0]
         feature_map_channels = feature_map_channels[1:]
 
@@ -395,7 +398,7 @@ class DecoderBlock(nn.Module):
             )
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: paddle.Tensor) -> paddle.Tensor:
         for layer in self.layers:
             x = layer(x)
         return x
@@ -406,7 +409,7 @@ class MetaData(ModelMetaData):
     name: str = "UNet"
     # Optimization
     jit: bool = False
-    cuda_graphs: bool = True
+    cuda_graphs: bool = False
     amp: bool = True
     # Inference
     onnx_cpu: bool = True
@@ -432,12 +435,12 @@ class UNet(Module):
         num_conv_blocks (int): Number of convolutional blocks per level in the encoder and decoder.
         conv_activation (Optional[str]): Type of activation to usein conv layers. Default is 'relu'.
         conv_transpose_activation (Optional[str]): Type of activation to use in deconv layers. Default is None.
-        pooling_type (str): Type of pooling operation used in the encoder. Supports "AvgPool3d", "MaxPool3d".
+        pooling_type (str): Type of pooling operation used in the encoder. Supports "AvgPool3D", "MaxPool3D".
         pool_size (int): Size of the window for the pooling operation.
 
     Returns:
     -------
-        torch.Tensor: The processed output tensor.
+        paddle.Tensor: The processed output tensor.
     """
 
     def __init__(
@@ -460,7 +463,7 @@ class UNet(Module):
         num_conv_blocks: int = 2,
         conv_activation: Optional[str] = "relu",
         conv_transpose_activation: Optional[str] = None,
-        pooling_type: str = "MaxPool3d",
+        pooling_type: str = "MaxPool3D",
         pool_size: int = 2,
     ):
         super().__init__(meta=MetaData())
@@ -489,7 +492,7 @@ class UNet(Module):
             conv_transpose_activation=conv_transpose_activation,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: paddle.Tensor) -> paddle.Tensor:
         skip_features = []
         # Encoding path
         for layer in self.encoder.layers:
@@ -503,7 +506,7 @@ class UNet(Module):
         for layer in self.decoder.layers:
             if isinstance(layer, ConvTranspose):
                 x = layer(x)
-                x = torch.cat([x, skip_features[concats]], dim=1)
+                x = paddle.concat([x, skip_features[concats]], dim=1)
                 concats += 1
             else:
                 x = layer(x)
@@ -512,7 +515,7 @@ class UNet(Module):
 
 
 if __name__ == "__main__":
-    inputs = torch.randn(1, 1, 96, 96, 96).cuda()
+    inputs = paddle.randn(1, 1, 96, 96, 96).cuda()
     print("The shape of inputs: ", inputs.shape)
     model = UNet(
         in_channels=1,

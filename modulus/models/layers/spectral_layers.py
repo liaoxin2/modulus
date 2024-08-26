@@ -17,13 +17,13 @@
 from typing import List, Tuple
 
 import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch import Tensor
+import paddle
+import paddle.nn as nn
+import paddle.nn.functional as F
+from paddle import Tensor
 
 
-class SpectralConv1d(nn.Module):
+class SpectralConv1d(nn.Layer):
     """1D Fourier layer. It does FFT, linear transform, and Inverse FFT.
 
     Parameters
@@ -46,8 +46,13 @@ class SpectralConv1d(nn.Module):
         )
 
         self.scale = 1 / (in_channels * out_channels)
-        self.weights1 = nn.Parameter(
-            torch.empty(in_channels, out_channels, self.modes1, 2)
+        self.weights1 = self.create_parameter(
+            [in_channels, out_channels, self.modes1, 2],
+            default_initializer=nn.initializer.Assign(
+                default_initializer=nn.initializer.Assign(
+                    paddle.empty([in_channels, out_channels, self.modes1, 2])
+                )
+            ),
         )
         self.reset_parameters()
 
@@ -71,21 +76,21 @@ class SpectralConv1d(nn.Module):
             Product of complex multiplication
         """
         # (batch, in_channel, x ), (in_channel, out_channel, x) -> (batch, out_channel, x)
-        cweights = torch.view_as_complex(weights)
-        return torch.einsum("bix,iox->box", input, cweights)
+        cweights = paddle.as_complex(weights)
+        return paddle.einsum("bix,iox->box", input, cweights)
 
     def forward(self, x: Tensor) -> Tensor:
         bsize = x.shape[0]
         # Compute Fourier coeffcients up to factor of e^(- something constant)
-        x_ft = torch.fft.rfft(x)
+        x_ft = paddle.fft.rfft(x)
 
         # Multiply relevant Fourier modes
-        out_ft = torch.zeros(
+        out_ft = paddle.zeros(
             bsize,
             self.out_channels,
-            x.size(-1) // 2 + 1,
-            device=x.device,
-            dtype=torch.cfloat,
+            x.shape[-1] // 2 + 1,
+            device=x.place,
+            dtype=paddle.cfloat,
         )
         out_ft[:, :, : self.modes1] = self.compl_mul1d(
             x_ft[:, :, : self.modes1],
@@ -93,15 +98,15 @@ class SpectralConv1d(nn.Module):
         )
 
         # Return to physical space
-        x = torch.fft.irfft(out_ft, n=x.size(-1))
+        x = paddle.fft.irfft(out_ft, n=x.shape[-1])
         return x
 
     def reset_parameters(self):
         """Reset spectral weights with distribution scale*U(0,1)"""
-        self.weights1.data = self.scale * torch.rand(self.weights1.data.shape)
+        self.weights1.data = self.scale * paddle.rand(self.weights1.data.shape)
 
 
-class SpectralConv2d(nn.Module):
+class SpectralConv2d(nn.Layer):
     """2D Fourier layer. It does FFT, linear transform, and Inverse FFT.
 
     Parameters
@@ -127,11 +132,17 @@ class SpectralConv2d(nn.Module):
         self.modes2 = modes2
 
         self.scale = 1 / (in_channels * out_channels)
-        self.weights1 = nn.Parameter(
-            torch.empty(in_channels, out_channels, self.modes1, self.modes2, 2)
+        self.weights1 = self.create_parameter(
+            [in_channels, out_channels, self.modes1, self.modes2, 2],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty([in_channels, out_channels, self.modes1, self.modes2, 2])
+            ),
         )
-        self.weights2 = nn.Parameter(
-            torch.empty(in_channels, out_channels, self.modes1, self.modes2, 2)
+        self.weights2 = self.create_parameter(
+            [in_channels, out_channels, self.modes1, self.modes2, 2],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty([in_channels, out_channels, self.modes1, self.modes2, 2])
+            ),
         )
         self.reset_parameters()
 
@@ -151,22 +162,22 @@ class SpectralConv2d(nn.Module):
             Product of complex multiplication
         """
         # (batch, in_channel, x, y), (in_channel, out_channel, x, y) -> (batch, out_channel, x, y)
-        cweights = torch.view_as_complex(weights)
-        return torch.einsum("bixy,ioxy->boxy", input, cweights)
+        cweights = paddle.as_complex(weights)
+        return paddle.einsum("bixy,ioxy->boxy", input, cweights)
 
     def forward(self, x: Tensor) -> Tensor:
         batchsize = x.shape[0]
         # Compute Fourier coeffcients up to factor of e^(- something constant)
-        x_ft = torch.fft.rfft2(x)
+        x_ft = paddle.fft.rfft2(x)
 
         # Multiply relevant Fourier modes
-        out_ft = torch.zeros(
+        out_ft = paddle.zeros(
             batchsize,
             self.out_channels,
-            x.size(-2),
-            x.size(-1) // 2 + 1,
-            dtype=torch.cfloat,
-            device=x.device,
+            x.shape[-2],
+            x.shape[-1] // 2 + 1,
+            dtype=paddle.cfloat,
+            device=x.place,
         )
         out_ft[:, :, : self.modes1, : self.modes2] = self.compl_mul2d(
             x_ft[:, :, : self.modes1, : self.modes2],
@@ -178,16 +189,16 @@ class SpectralConv2d(nn.Module):
         )
 
         # Return to physical space
-        x = torch.fft.irfft2(out_ft, s=(x.size(-2), x.size(-1)))
+        x = paddle.fft.irfft2(out_ft, s=(x.shape[-2], x.shape[-1]))
         return x
 
     def reset_parameters(self):
         """Reset spectral weights with distribution scale*U(0,1)"""
-        self.weights1.data = self.scale * torch.rand(self.weights1.data.shape)
-        self.weights2.data = self.scale * torch.rand(self.weights2.data.shape)
+        self.weights1.data = self.scale * paddle.rand(self.weights1.data.shape)
+        self.weights2.data = self.scale * paddle.rand(self.weights2.data.shape)
 
 
-class SpectralConv3d(nn.Module):
+class SpectralConv3d(nn.Layer):
     """3D Fourier layer. It does FFT, linear transform, and Inverse FFT.
 
     Parameters
@@ -218,25 +229,65 @@ class SpectralConv3d(nn.Module):
         self.modes3 = modes3
 
         self.scale = 1 / (in_channels * out_channels)
-        self.weights1 = nn.Parameter(
-            torch.empty(
-                in_channels, out_channels, self.modes1, self.modes2, self.modes3, 2
-            )
+        self.weights1 = self.create_parameter(
+            [in_channels, out_channels, self.modes1, self.modes2, self.modes3, 2],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        2,
+                    ]
+                )
+            ),
         )
-        self.weights2 = nn.Parameter(
-            torch.empty(
-                in_channels, out_channels, self.modes1, self.modes2, self.modes3, 2
-            )
+        self.weights2 = self.create_parameter(
+            [in_channels, out_channels, self.modes1, self.modes2, self.modes3, 2],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        2,
+                    ]
+                )
+            ),
         )
-        self.weights3 = nn.Parameter(
-            torch.empty(
-                in_channels, out_channels, self.modes1, self.modes2, self.modes3, 2
-            )
+        self.weights3 = self.create_parameter(
+            [in_channels, out_channels, self.modes1, self.modes2, self.modes3, 2],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        2,
+                    ]
+                )
+            ),
         )
-        self.weights4 = nn.Parameter(
-            torch.empty(
-                in_channels, out_channels, self.modes1, self.modes2, self.modes3, 2
-            )
+        self.weights4 = self.create_parameter(
+            [in_channels, out_channels, self.modes1, self.modes2, self.modes3, 2],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        2,
+                    ]
+                )
+            ),
         )
         self.reset_parameters()
 
@@ -260,23 +311,23 @@ class SpectralConv3d(nn.Module):
             Product of complex multiplication
         """
         # (batch, in_channel, x, y, z), (in_channel, out_channel, x, y, z) -> (batch, out_channel, x, y, z)
-        cweights = torch.view_as_complex(weights)
-        return torch.einsum("bixyz,ioxyz->boxyz", input, cweights)
+        cweights = paddle.as_complex(weights)
+        return paddle.einsum("bixyz,ioxyz->boxyz", input, cweights)
 
     def forward(self, x: Tensor) -> Tensor:
         batchsize = x.shape[0]
         # Compute Fourier coeffcients up to factor of e^(- something constant)
-        x_ft = torch.fft.rfftn(x, dim=[-3, -2, -1])
+        x_ft = paddle.fft.rfftn(x, axis=[-3, -2, -1])
 
         # Multiply relevant Fourier modes
-        out_ft = torch.zeros(
+        out_ft = paddle.zeros(
             batchsize,
             self.out_channels,
-            x.size(-3),
-            x.size(-2),
-            x.size(-1) // 2 + 1,
-            dtype=torch.cfloat,
-            device=x.device,
+            x.shape[-3],
+            x.shape[-2],
+            x.shape[-1] // 2 + 1,
+            dtype=paddle.cfloat,
+            device=x.place,
         )
         out_ft[:, :, : self.modes1, : self.modes2, : self.modes3] = self.compl_mul3d(
             x_ft[:, :, : self.modes1, : self.modes2, : self.modes3], self.weights1
@@ -292,18 +343,18 @@ class SpectralConv3d(nn.Module):
         )
 
         # Return to physical space
-        x = torch.fft.irfftn(out_ft, s=(x.size(-3), x.size(-2), x.size(-1)))
+        x = paddle.fft.irfftn(out_ft, s=(x.shape[-3], x.shape[-2], x.shape[-1]))
         return x
 
     def reset_parameters(self):
         """Reset spectral weights with distribution scale*U(0,1)"""
-        self.weights1.data = self.scale * torch.rand(self.weights1.data.shape)
-        self.weights2.data = self.scale * torch.rand(self.weights2.data.shape)
-        self.weights3.data = self.scale * torch.rand(self.weights3.data.shape)
-        self.weights4.data = self.scale * torch.rand(self.weights4.data.shape)
+        self.weights1.data = self.scale * paddle.rand(self.weights1.data.shape)
+        self.weights2.data = self.scale * paddle.rand(self.weights2.data.shape)
+        self.weights3.data = self.scale * paddle.rand(self.weights3.data.shape)
+        self.weights4.data = self.scale * paddle.rand(self.weights4.data.shape)
 
 
-class SpectralConv4d(nn.Module):
+class SpectralConv4d(nn.Layer):
     """4D Fourier layer. It does FFT, linear transform, and Inverse FFT.
 
     Parameters
@@ -341,8 +392,8 @@ class SpectralConv4d(nn.Module):
         self.modes4 = modes4
 
         self.scale = 1 / (in_channels * out_channels)
-        self.weights1 = nn.Parameter(
-            torch.empty(
+        self.weights1 = self.create_parameter(
+            [
                 in_channels,
                 out_channels,
                 self.modes1,
@@ -350,10 +401,23 @@ class SpectralConv4d(nn.Module):
                 self.modes3,
                 self.modes4,
                 2,
-            )
+            ],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        self.modes4,
+                        2,
+                    ]
+                )
+            ),
         )
-        self.weights2 = nn.Parameter(
-            torch.empty(
+        self.weights2 = self.create_parameter(
+            [
                 in_channels,
                 out_channels,
                 self.modes1,
@@ -361,10 +425,23 @@ class SpectralConv4d(nn.Module):
                 self.modes3,
                 self.modes4,
                 2,
-            )
+            ],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        self.modes4,
+                        2,
+                    ]
+                )
+            ),
         )
-        self.weights3 = nn.Parameter(
-            torch.empty(
+        self.weights3 = self.create_parameter(
+            [
                 in_channels,
                 out_channels,
                 self.modes1,
@@ -372,10 +449,23 @@ class SpectralConv4d(nn.Module):
                 self.modes3,
                 self.modes4,
                 2,
-            )
+            ],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        self.modes4,
+                        2,
+                    ]
+                )
+            ),
         )
-        self.weights4 = nn.Parameter(
-            torch.empty(
+        self.weights4 = self.create_parameter(
+            [
                 in_channels,
                 out_channels,
                 self.modes1,
@@ -383,10 +473,23 @@ class SpectralConv4d(nn.Module):
                 self.modes3,
                 self.modes4,
                 2,
-            )
+            ],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        self.modes4,
+                        2,
+                    ]
+                )
+            ),
         )
-        self.weights5 = nn.Parameter(
-            torch.empty(
+        self.weights5 = self.create_parameter(
+            [
                 in_channels,
                 out_channels,
                 self.modes1,
@@ -394,10 +497,23 @@ class SpectralConv4d(nn.Module):
                 self.modes3,
                 self.modes4,
                 2,
-            )
+            ],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        self.modes4,
+                        2,
+                    ]
+                )
+            ),
         )
-        self.weights6 = nn.Parameter(
-            torch.empty(
+        self.weights6 = self.create_parameter(
+            [
                 in_channels,
                 out_channels,
                 self.modes1,
@@ -405,10 +521,23 @@ class SpectralConv4d(nn.Module):
                 self.modes3,
                 self.modes4,
                 2,
-            )
+            ],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        self.modes4,
+                        2,
+                    ]
+                )
+            ),
         )
-        self.weights7 = nn.Parameter(
-            torch.empty(
+        self.weights7 = self.create_parameter(
+            [
                 in_channels,
                 out_channels,
                 self.modes1,
@@ -416,10 +545,23 @@ class SpectralConv4d(nn.Module):
                 self.modes3,
                 self.modes4,
                 2,
-            )
+            ],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        self.modes4,
+                        2,
+                    ]
+                )
+            ),
         )
-        self.weights8 = nn.Parameter(
-            torch.empty(
+        self.weights8 = self.create_parameter(
+            [
                 in_channels,
                 out_channels,
                 self.modes1,
@@ -427,7 +569,20 @@ class SpectralConv4d(nn.Module):
                 self.modes3,
                 self.modes4,
                 2,
-            )
+            ],
+            default_initializer=nn.initializer.Assign(
+                paddle.empty(
+                    [
+                        in_channels,
+                        out_channels,
+                        self.modes1,
+                        self.modes2,
+                        self.modes3,
+                        self.modes4,
+                        2,
+                    ]
+                )
+            ),
         )
         self.reset_parameters()
 
@@ -451,28 +606,28 @@ class SpectralConv4d(nn.Module):
             Product of complex multiplication
         """
         # (batch, in_channel, x, y, z), (in_channel, out_channel, x, y, z) -> (batch, out_channel, x, y, z)
-        cweights = torch.view_as_complex(weights)
-        return torch.einsum("bixyzt,ioxyzt->boxyzt", input, cweights)
+        cweights = paddle.as_complex(weights)
+        return paddle.einsum("bixyzt,ioxyzt->boxyzt", input, cweights)
 
     def forward(self, x: Tensor) -> Tensor:
         batchsize = x.shape[0]
         # Compute Fourier coeffcients up to factor of e^(- something constant)
-        x_ft = torch.fft.rfftn(x, dim=[-4, -3, -2, -1])
+        x_ft = paddle.fft.rfftn(x, axis=[-4, -3, -2, -1])
 
         # Multiply relevant Fourier modes
-        out_ft = torch.zeros(
+        out_ft = paddle.zeros(
             batchsize,
             self.out_channels,
-            x.size(-4),
-            x.size(-3),
-            x.size(-2),
-            x.size(-1) // 2 + 1,
-            dtype=torch.cfloat,
-            device=x.device,
+            x.shape[-4],
+            x.shape[-3],
+            x.shape[-2],
+            x.shape[-1] // 2 + 1,
+            dtype=paddle.cfloat,
+            device=x.place,
         )
 
-        # print(f'mod: size x: {x_ft.size()}, out: {out_ft.size()}')
-        # print(f'mod: x_ft[weight4]: {x_ft[:, :, self.modes1 :, self.modes2 :, : -self.modes3, :self.modes4].size()} weight4: {self.weights4.size()}')
+        # print(f'mod: shape[x:]{x_ft.shape[)}] out: {out_ft.shape[)}])
+        # print(f'mod: x_ft[weight4]: {x_ft[:, :, self.modes1 :, self.modes2 :, : -self.modes3, :self.modes4].shape[)}]weight4: {self.weights4.shape[)}])
 
         out_ft[
             :, :, : self.modes1, : self.modes2, : self.modes3, : self.modes4
@@ -524,19 +679,21 @@ class SpectralConv4d(nn.Module):
         )
 
         # Return to physical space
-        x = torch.fft.irfftn(out_ft, s=(x.size(-4), x.size(-3), x.size(-2), x.size(-1)))
+        x = paddle.fft.irfftn(
+            out_ft, s=(x.shape[-4], x.shape[-3], x.shape[-2], x.shape[-1])
+        )
         return x
 
     def reset_parameters(self):
         """Reset spectral weights with distribution scale*U(0,1)"""
-        self.weights1.data = self.scale * torch.rand(self.weights1.data.shape)
-        self.weights2.data = self.scale * torch.rand(self.weights2.data.shape)
-        self.weights3.data = self.scale * torch.rand(self.weights3.data.shape)
-        self.weights4.data = self.scale * torch.rand(self.weights4.data.shape)
-        self.weights5.data = self.scale * torch.rand(self.weights5.data.shape)
-        self.weights6.data = self.scale * torch.rand(self.weights6.data.shape)
-        self.weights7.data = self.scale * torch.rand(self.weights7.data.shape)
-        self.weights8.data = self.scale * torch.rand(self.weights8.data.shape)
+        self.weights1.data = self.scale * paddle.rand(self.weights1.data.shape)
+        self.weights2.data = self.scale * paddle.rand(self.weights2.data.shape)
+        self.weights3.data = self.scale * paddle.rand(self.weights3.data.shape)
+        self.weights4.data = self.scale * paddle.rand(self.weights4.data.shape)
+        self.weights5.data = self.scale * paddle.rand(self.weights5.data.shape)
+        self.weights6.data = self.scale * paddle.rand(self.weights6.data.shape)
+        self.weights7.data = self.scale * paddle.rand(self.weights7.data.shape)
+        self.weights8.data = self.scale * paddle.rand(self.weights8.data.shape)
 
 
 # ==========================================
@@ -561,27 +718,27 @@ def fourier_derivatives(x: Tensor, ell: List[float]) -> Tuple[Tensor, Tensor]:
     dim = len(ell)
 
     # get device
-    device = x.device
+    device = x.place
 
     # compute fourier transform
-    x_h = torch.fft.fftn(x, dim=list(range(2, dim + 2)))
+    x_h = paddle.fft.fftn(x, axis=list(range(2, dim + 2)))
 
     # make wavenumbers
     k_x = []
     for i, nx in enumerate(n):
         k_x.append(
-            torch.cat(
+            paddle.concat(
                 (
-                    torch.arange(start=0, end=nx // 2, step=1, device=device),
-                    torch.arange(start=-nx // 2, end=0, step=1, device=device),
+                    paddle.arange(start=0, end=nx // 2, step=1, device=device),
+                    paddle.arange(start=-nx // 2, end=0, step=1, device=device),
                 ),
                 0,
             ).reshape((i + 2) * [1] + [nx] + (dim - i - 1) * [1])
         )
 
     # compute laplacian in fourier space
-    j = torch.complex(
-        torch.tensor([0.0], device=device), torch.tensor([1.0], device=device)
+    j = paddle.complex(
+        paddle.tensor([0.0], device=device), paddle.tensor([1.0], device=device)
     )  # Cuda graphs does not work here
     wx_h = [j * k_x_i * x_h * (2 * pi / ell[i]) for i, k_x_i in enumerate(k_x)]
     wxx_h = [
@@ -590,21 +747,24 @@ def fourier_derivatives(x: Tensor, ell: List[float]) -> Tuple[Tensor, Tensor]:
     ]
 
     # inverse fourier transform out
-    wx = torch.cat(
-        [torch.fft.ifftn(wx_h_i, dim=list(range(2, dim + 2))).real for wx_h_i in wx_h],
-        dim=1,
-    )
-    wxx = torch.cat(
+    wx = paddle.concat(
         [
-            torch.fft.ifftn(wxx_h_i, dim=list(range(2, dim + 2))).real
+            paddle.fft.ifftn(wx_h_i, axis=list(range(2, dim + 2))).real
+            for wx_h_i in wx_h
+        ],
+        axis=1,
+    )
+    wxx = paddle.concat(
+        [
+            paddle.fft.ifftn(wxx_h_i, axis=list(range(2, dim + 2))).real
             for wxx_h_i in wxx_h
         ],
-        dim=1,
+        axis=1,
     )
     return (wx, wxx)
 
 
-@torch.jit.ignore
+@paddle.jit.ignore
 def calc_latent_derivatives(
     x: Tensor, domain_length: List[int] = 2
 ) -> Tuple[List[Tensor], List[Tensor]]:
@@ -628,18 +788,18 @@ def calc_latent_derivatives(
     if len(x.shape) == 3:
         dx = dx[..., padd[0] : -padd[0]]
         ddx = ddx[..., padd[0] : -padd[0]]
-        dx_list = torch.split(dx, x.shape[1], dim=1)
-        ddx_list = torch.split(ddx, x.shape[1], dim=1)
+        dx_list = paddle.split(dx, x.shape[1], axis=1)
+        ddx_list = paddle.split(ddx, x.shape[1], axis=1)
     elif len(x.shape) == 4:
         dx = dx[..., padd[0] : -padd[0], padd[1] : -padd[1]]
         ddx = ddx[..., padd[0] : -padd[0], padd[1] : -padd[1]]
-        dx_list = torch.split(dx, x.shape[1], dim=1)
-        ddx_list = torch.split(ddx, x.shape[1], dim=1)
+        dx_list = paddle.split(dx, x.shape[1], axis=1)
+        ddx_list = paddle.split(ddx, x.shape[1], axis=1)
     else:
         dx = dx[..., padd[0] : -padd[0], padd[1] : -padd[1], padd[2] : -padd[2]]
         ddx = ddx[..., padd[0] : -padd[0], padd[1] : -padd[1], padd[2] : -padd[2]]
-        dx_list = torch.split(dx, x.shape[1], dim=1)
-        ddx_list = torch.split(ddx, x.shape[1], dim=1)
+        dx_list = paddle.split(dx, x.shape[1], axis=1)
+        ddx_list = paddle.split(ddx, x.shape[1], axis=1)
 
     return dx_list, ddx_list
 
@@ -673,10 +833,10 @@ def first_order_pino_grads(
         u_hidden = F.conv3d(u, weights_1, bias_1)
 
     # compute derivative hidden layer
-    diff_tanh = 1 / torch.cosh(u_hidden) ** 2
+    diff_tanh = 1 / paddle.cosh(u_hidden) ** 2
 
     # compute diff(f(g))
-    diff_fg = torch.einsum(
+    diff_fg = paddle.einsum(
         "mi" + dim_str + ",bm" + dim_str + ",km" + dim_str + "->bi" + dim_str,
         weights_1,
         diff_tanh,
@@ -685,10 +845,10 @@ def first_order_pino_grads(
 
     # compute diff(f(g)) * diff(g)
     vx = [
-        torch.einsum("bi" + dim_str + ",bi" + dim_str + "->b" + dim_str, diff_fg, w)
+        paddle.einsum("bi" + dim_str + ",bi" + dim_str + "->b" + dim_str, diff_fg, w)
         for w in ux
     ]
-    vx = [torch.unsqueeze(w, dim=1) for w in vx]
+    vx = [paddle.unsqueeze(w, axis=1) for w in vx]
 
     return vx
 
@@ -723,10 +883,10 @@ def second_order_pino_grads(
         u_hidden = F.conv3d(u, weights_1, bias_1)
 
     # compute derivative hidden layer
-    diff_tanh = 1 / torch.cosh(u_hidden) ** 2
+    diff_tanh = 1 / paddle.cosh(u_hidden) ** 2
 
     # compute diff(f(g))
-    diff_fg = torch.einsum(
+    diff_fg = paddle.einsum(
         "mi" + dim_str + ",bm" + dim_str + ",km" + dim_str + "->bi" + dim_str,
         weights_1,
         diff_tanh,
@@ -735,11 +895,11 @@ def second_order_pino_grads(
 
     # compute diagonal of hessian
     # double derivative of hidden layer
-    diff_diff_tanh = -2 * diff_tanh * torch.tanh(u_hidden)
+    diff_diff_tanh = -2 * diff_tanh * paddle.tanh(u_hidden)
 
     # compute diff(g) * hessian(f) * diff(g)
     vxx1 = [
-        torch.einsum(
+        paddle.einsum(
             "bi"
             + dim_str
             + ",mi"
@@ -763,9 +923,9 @@ def second_order_pino_grads(
 
     # compute diff(f) * hessian(g)
     vxx2 = [
-        torch.einsum("bi" + dim_str + ",bi" + dim_str + "->b" + dim_str, diff_fg, w)
+        paddle.einsum("bi" + dim_str + ",bi" + dim_str + "->b" + dim_str, diff_fg, w)
         for w in uxx
     ]
-    vxx = [torch.unsqueeze(a + b, dim=1) for a, b in zip(vxx1, vxx2)]
+    vxx = [paddle.unsqueeze(a + b, axis=1) for a, b in zip(vxx1, vxx2)]
 
     return vxx

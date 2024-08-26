@@ -17,9 +17,9 @@
 from dataclasses import dataclass
 from typing import List, Optional, Union
 
-import torch
-import torch.nn as nn
-from torch import Tensor
+import paddle
+import paddle.nn as nn
+from paddle import Tensor
 
 import modulus  # noqa: F401 for docs
 from modulus.models.layers import FCLayer, get_activation
@@ -33,7 +33,7 @@ class MetaData(ModelMetaData):
     name: str = "FullyConnected"
     # Optimization
     jit: bool = True
-    cuda_graphs: bool = True
+    cuda_graphs: bool = False
     amp: bool = True
     torch_fx: bool = True
     # Inference
@@ -71,10 +71,10 @@ class FullyConnected(Module):
     Example
     -------
     >>> model = modulus.models.mlp.FullyConnected(in_features=32, out_features=64)
-    >>> input = torch.randn(128, 32)
+    >>> input = paddle.randn(128, 32)
     >>> output = model(input)
     >>> output.size()
-    torch.Size([128, 64])
+    paddle.Size([128, 64])
     """
 
     def __init__(
@@ -94,7 +94,9 @@ class FullyConnected(Module):
         self.skip_connections = skip_connections
 
         if adaptive_activations:
-            activation_par = nn.Parameter(torch.ones(1))
+            activation_par = self.create_parameter(
+                [1], default_initializer=nn.initializer.Assign(paddle.ones([1]))
+            )
         else:
             activation_par = None
 
@@ -106,7 +108,7 @@ class FullyConnected(Module):
             )
         activation_fn = [get_activation(a) for a in activation_fn]
 
-        self.layers = nn.ModuleList()
+        self.layers = nn.LayerList()
 
         layer_in_features = in_features
         for i in range(num_layers):

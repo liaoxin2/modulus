@@ -25,7 +25,7 @@ from modulus.models.layers.transformer_decoder import (
 )
 
 
-class Sequence_Model(torch.nn.Module):
+class Sequence_Model(torch.nn.Layer):
     """Decoder-only multi-head attention architecture
     Parameters
     ----------
@@ -120,7 +120,7 @@ class Sequence_Model(torch.nn.Module):
             x = torch.cat([context, x], dim=1)
         x = self.input_encoder(x)
         tgt_mask = self.generate_square_subsequent_mask(
-            x.size()[1], device=self.dist.device
+            x.size()[1], device=self.dist.place
         )
         output = self.decoder(x, tgt_mask=tgt_mask)
 
@@ -144,7 +144,7 @@ class Sequence_Model(torch.nn.Module):
     @staticmethod
     def generate_square_subsequent_mask(
         sz: int,
-        device: torch.device = torch.device(torch._C._get_default_device()),
+        device: torch.place = torch.place(torch._C._get_default_device()),
         dtype: torch.dtype = torch.get_default_dtype(),
     ) -> Tensor:
         """Generates a square mask for the sequence. The mask shows which entries should not be used."""

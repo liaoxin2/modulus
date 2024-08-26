@@ -14,13 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-from torch import nn
+import paddle
+from paddle import nn
 
 from ..utils import get_earth_position_index, trunc_normal_
 
 
-class EarthAttention3D(nn.Module):
+class EarthAttention3D(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     3D window attention with earth position bias.
@@ -59,14 +59,15 @@ class EarthAttention3D(nn.Module):
             input_resolution[1] // window_size[1]
         )
 
-        self.earth_position_bias_table = nn.Parameter(
-            torch.zeros(
+        self.earth_position_bias_table = self.create_parameter(
+            [
                 (window_size[0] ** 2)
                 * (window_size[1] ** 2)
                 * (window_size[2] * 2 - 1),
                 self.type_of_windows,
                 num_heads,
-            )
+            ],
+            default_initializer=nn.initializer.Constant(0.0),
         )  # Wpl**2 * Wlat**2 * Wlon*2-1, Npl//Wpl * Nlat//Wlat, nH
 
         earth_position_index = get_earth_position_index(
@@ -74,7 +75,7 @@ class EarthAttention3D(nn.Module):
         )  # Wpl*Wlat*Wlon, Wpl*Wlat*Wlon
         self.register_buffer("earth_position_index", earth_position_index)
 
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.qkv = nn.Linear(dim, dim * 3, bias_attr=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
@@ -82,9 +83,9 @@ class EarthAttention3D(nn.Module):
         self.earth_position_bias_table = trunc_normal_(
             self.earth_position_bias_table, std=0.02
         )
-        self.softmax = nn.Softmax(dim=-1)
+        self.softmax = nn.Softmax(axis=-1)
 
-    def forward(self, x: torch.Tensor, mask=None):
+    def forward(self, x: paddle.Tensor, mask=None):
         """
         Args:
             x: input features with shape of (B * num_lon, num_pl*num_lat, N, C)
@@ -93,8 +94,8 @@ class EarthAttention3D(nn.Module):
         B_, nW_, N, C = x.shape
         qkv = (
             self.qkv(x)
-            .reshape(B_, nW_, N, 3, self.num_heads, C // self.num_heads)
-            .permute(3, 0, 4, 1, 2, 5)
+            .reshape([B_, nW_, N, 3, self.num_heads, C // self.num_heads])
+            .transpose([3, 0, 4, 1, 2, 5])
         )
         q, k, v = qkv[0], qkv[1], qkv[2]
 
@@ -102,37 +103,39 @@ class EarthAttention3D(nn.Module):
         attn = q @ k.transpose(-2, -1)
 
         earth_position_bias = self.earth_position_bias_table[
-            self.earth_position_index.view(-1)
-        ].view(
-            self.window_size[0] * self.window_size[1] * self.window_size[2],
-            self.window_size[0] * self.window_size[1] * self.window_size[2],
-            self.type_of_windows,
-            -1,
+            self.earth_position_index.reshape([-1])
+        ].reshape(
+            [
+                self.window_size[0] * self.window_size[1] * self.window_size[2],
+                self.window_size[0] * self.window_size[1] * self.window_size[2],
+                self.type_of_windows,
+                -1,
+            ]
         )  # Wpl*Wlat*Wlon, Wpl*Wlat*Wlon, num_pl*num_lat, nH
-        earth_position_bias = earth_position_bias.permute(
-            3, 2, 0, 1
+        earth_position_bias = earth_position_bias.transpose(
+            [3, 2, 0, 1]
         ).contiguous()  # nH, num_pl*num_lat, Wpl*Wlat*Wlon, Wpl*Wlat*Wlon
         attn = attn + earth_position_bias.unsqueeze(0)
 
         if mask is not None:
             nLon = mask.shape[0]
-            attn = attn.view(
-                B_ // nLon, nLon, self.num_heads, nW_, N, N
+            attn = attn.reshape(
+                [B_ // nLon, nLon, self.num_heads, nW_, N, N]
             ) + mask.unsqueeze(1).unsqueeze(0)
-            attn = attn.view(-1, self.num_heads, nW_, N, N)
+            attn = attn.reshape([-1, self.num_heads, nW_, N, N])
             attn = self.softmax(attn)
         else:
             attn = self.softmax(attn)
 
         attn = self.attn_drop(attn)
 
-        x = (attn @ v).permute(0, 2, 3, 1, 4).reshape(B_, nW_, N, C)
+        x = (attn @ v).transpose([0, 2, 3, 1, 4]).reshape([B_, nW_, N, C])
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
 
 
-class EarthAttention2D(nn.Module):
+class EarthAttention2D(nn.Layer):
     """
     Revise from WeatherLearn https://github.com/lizhuoq/WeatherLearn
     2D window attention with earth position bias.
@@ -170,7 +173,7 @@ class EarthAttention2D(nn.Module):
         self.type_of_windows = input_resolution[0] // window_size[0]
 
         self.earth_position_bias_table = nn.Parameter(
-            torch.zeros(
+            paddle.zeros(
                 (window_size[0] ** 2) * (window_size[1] * 2 - 1),
                 self.type_of_windows,
                 num_heads,
@@ -182,7 +185,7 @@ class EarthAttention2D(nn.Module):
         )  # Wlat*Wlon, Wlat*Wlon
         self.register_buffer("earth_position_index", earth_position_index)
 
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.qkv = nn.Linear(dim, dim * 3, bias_attr=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
@@ -190,9 +193,9 @@ class EarthAttention2D(nn.Module):
         self.earth_position_bias_table = trunc_normal_(
             self.earth_position_bias_table, std=0.02
         )
-        self.softmax = nn.Softmax(dim=-1)
+        self.softmax = nn.Softmax(axis=-1)
 
-    def forward(self, x: torch.Tensor, mask=None):
+    def forward(self, x: paddle.Tensor, mask=None):
         """
         Args:
             x: input features with shape of (B * num_lon, num_lat, N, C)
@@ -201,8 +204,8 @@ class EarthAttention2D(nn.Module):
         B_, nW_, N, C = x.shape
         qkv = (
             self.qkv(x)
-            .reshape(B_, nW_, N, 3, self.num_heads, C // self.num_heads)
-            .permute(3, 0, 4, 1, 2, 5)
+            .reshape([B_, nW_, N, 3, self.num_heads, C // self.num_heads])
+            .transpose([3, 0, 4, 1, 2, 5])
         )
         q, k, v = qkv[0], qkv[1], qkv[2]
 
@@ -210,31 +213,33 @@ class EarthAttention2D(nn.Module):
         attn = q @ k.transpose(-2, -1)
 
         earth_position_bias = self.earth_position_bias_table[
-            self.earth_position_index.view(-1)
-        ].view(
-            self.window_size[0] * self.window_size[1],
-            self.window_size[0] * self.window_size[1],
-            self.type_of_windows,
-            -1,
+            self.earth_position_index.reshape([-1])
+        ].reshape(
+            [
+                self.window_size[0] * self.window_size[1],
+                self.window_size[0] * self.window_size[1],
+                self.type_of_windows,
+                -1,
+            ]
         )  # Wlat*Wlon, Wlat*Wlon, num_lat, nH
-        earth_position_bias = earth_position_bias.permute(
-            3, 2, 0, 1
+        earth_position_bias = earth_position_bias.transpose(
+            [3, 2, 0, 1]
         ).contiguous()  # nH, num_lat, Wlat*Wlon, Wlat*Wlon
         attn = attn + earth_position_bias.unsqueeze(0)
 
         if mask is not None:
             nLon = mask.shape[0]
-            attn = attn.view(
-                B_ // nLon, nLon, self.num_heads, nW_, N, N
+            attn = attn.reshape(
+                [B_ // nLon, nLon, self.num_heads, nW_, N, N]
             ) + mask.unsqueeze(1).unsqueeze(0)
-            attn = attn.view(-1, self.num_heads, nW_, N, N)
+            attn = attn.reshape([-1, self.num_heads, nW_, N, N])
             attn = self.softmax(attn)
         else:
             attn = self.softmax(attn)
 
         attn = self.attn_drop(attn)
 
-        x = (attn @ v).permute(0, 2, 3, 1, 4).reshape(B_, nW_, N, C)
+        x = (attn @ v).transpose([0, 2, 3, 1, 4]).reshape([B_, nW_, N, C])
         x = self.proj(x)
         x = self.proj_drop(x)
         return x

@@ -26,7 +26,7 @@ from typing import List, Union
 
 import numpy as np
 import nvtx
-import torch
+import paddle
 
 from modulus.models.diffusion import DhariwalUNet, SongUNet  # noqa: F401 for globals
 from modulus.models.meta import ModelMetaData
@@ -123,19 +123,19 @@ class VPPrecond(Module):
         )  # TODO needs better handling
 
     def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
+        x = x.to(paddle.float32)
+        sigma = sigma.to(paddle.float32).reshape([-1, 1, 1, 1])
         class_labels = (
             None
             if self.label_dim == 0
-            else torch.zeros([1, self.label_dim], device=x.device)
+            else paddle.zeros([1, self.label_dim]).to(x.place)
             if class_labels is None
-            else class_labels.to(torch.float32).reshape(-1, self.label_dim)
+            else class_labels.to(paddle.float32).reshape([-1, self.label_dim])
         )
         dtype = (
-            torch.float16
-            if (self.use_fp16 and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            paddle.float16
+            if (self.use_fp16 and not force_fp32 and x.place.type == "cuda")
+            else paddle.float32
         )
 
         c_skip = 1
@@ -149,15 +149,15 @@ class VPPrecond(Module):
             class_labels=class_labels,
             **model_kwargs,
         )
-        if (F_x.dtype != dtype) and not torch.is_autocast_enabled():
-            raise ValueError(
-                f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
-            )
+        # if (F_x.dtype != dtype) and not paddle.is_autocast_enabled():
+        #     raise ValueError(
+        #         f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
+        #     )
 
-        D_x = c_skip * x + c_out * F_x.to(torch.float32)
+        D_x = c_skip * x + c_out * F_x.to(paddle.float32)
         return D_x
 
-    def sigma(self, t: Union[float, torch.Tensor]):
+    def sigma(self, t: Union[float, paddle.Tensor]):
         """
         Compute the sigma(t) value for a given t based on the VP formulation.
 
@@ -166,18 +166,18 @@ class VPPrecond(Module):
 
         Parameters
         ----------
-        t : Union[float, torch.Tensor]
+        t : Union[float, paddle.Tensor]
             The timestep or set of timesteps for which to compute sigma(t).
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The computed sigma(t) value(s).
         """
-        t = torch.as_tensor(t)
+        t = paddle.to_tensor(t)
         return ((0.5 * self.beta_d * (t**2) + self.beta_min * t).exp() - 1).sqrt()
 
-    def sigma_inv(self, sigma: Union[float, torch.Tensor]):
+    def sigma_inv(self, sigma: Union[float, paddle.Tensor]):
         """
         Compute the inverse of the sigma function for a given sigma.
 
@@ -186,36 +186,36 @@ class VPPrecond(Module):
 
         Parameters
         ----------
-        sigma : Union[float, torch.Tensor]
+        sigma : Union[float, paddle.Tensor]
             The sigma(t) value or set of sigma(t) values for which to compute the
             inverse.
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The computed t value(s) corresponding to the provided sigma(t).
         """
-        sigma = torch.as_tensor(sigma)
+        sigma = paddle.to_tensor(sigma)
         return (
             (self.beta_min**2 + 2 * self.beta_d * (1 + sigma**2).log()).sqrt()
             - self.beta_min
         ) / self.beta_d
 
-    def round_sigma(self, sigma: Union[float, List, torch.Tensor]):
+    def round_sigma(self, sigma: Union[float, List, paddle.Tensor]):
         """
         Convert a given sigma value(s) to a tensor representation.
 
         Parameters
         ----------
-        sigma : Union[float list, torch.Tensor]
+        sigma : Union[float list, paddle.Tensor]
             The sigma value(s) to convert.
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The tensor representation of the provided sigma value(s).
         """
-        return torch.as_tensor(sigma)
+        return paddle.to_tensor(sigma)
 
 
 @dataclass
@@ -296,19 +296,19 @@ class VEPrecond(Module):
         )  # TODO needs better handling
 
     def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
+        x = x.to(paddle.float32)
+        sigma = sigma.to(paddle.float32).reshape([-1, 1, 1, 1])
         class_labels = (
             None
             if self.label_dim == 0
-            else torch.zeros([1, self.label_dim], device=x.device)
+            else paddle.zeros([1, self.label_dim]).to(x.place)
             if class_labels is None
-            else class_labels.to(torch.float32).reshape(-1, self.label_dim)
+            else class_labels.to(paddle.float32).reshape([-1, self.label_dim])
         )
         dtype = (
-            torch.float16
-            if (self.use_fp16 and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            paddle.float16
+            if (self.use_fp16 and not force_fp32 and x.place.type == "cuda")
+            else paddle.float32
         )
 
         c_skip = 1
@@ -322,29 +322,29 @@ class VEPrecond(Module):
             class_labels=class_labels,
             **model_kwargs,
         )
-        if (F_x.dtype != dtype) and not torch.is_autocast_enabled():
-            raise ValueError(
-                f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
-            )
+        # if (F_x.dtype != dtype) and not paddle.is_autocast_enabled():
+        #     raise ValueError(
+        #         f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
+        #     )
 
-        D_x = c_skip * x + c_out * F_x.to(torch.float32)
+        D_x = c_skip * x + c_out * F_x.to(paddle.float32)
         return D_x
 
-    def round_sigma(self, sigma: Union[float, List, torch.Tensor]):
+    def round_sigma(self, sigma: Union[float, List, paddle.Tensor]):
         """
         Convert a given sigma value(s) to a tensor representation.
 
         Parameters
         ----------
-        sigma : Union[float list, torch.Tensor]
+        sigma : Union[float list, paddle.Tensor]
             The sigma value(s) to convert.
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The tensor representation of the provided sigma value(s).
         """
-        return torch.as_tensor(sigma)
+        return paddle.to_tensor(sigma)
 
 
 @dataclass
@@ -428,7 +428,7 @@ class iDDPMPrecond(Module):
             **model_kwargs,
         )  # TODO needs better handling
 
-        u = torch.zeros(M + 1)
+        u = paddle.zeros(M + 1)
         for j in range(M, 0, -1):  # M, ..., 1
             u[j - 1] = (
                 (u[j] ** 2 + 1)
@@ -440,26 +440,26 @@ class iDDPMPrecond(Module):
         self.sigma_max = float(u[0])
 
     def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
+        x = x.to(paddle.float32)
+        sigma = sigma.to(paddle.float32).reshape([-1, 1, 1, 1])
         class_labels = (
             None
             if self.label_dim == 0
-            else torch.zeros([1, self.label_dim], device=x.device)
+            else paddle.zeros([1, self.label_dim]).to(x.place)
             if class_labels is None
-            else class_labels.to(torch.float32).reshape(-1, self.label_dim)
+            else class_labels.to(paddle.float32).reshape([-1, self.label_dim])
         )
         dtype = (
-            torch.float16
-            if (self.use_fp16 and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            paddle.float16
+            if (self.use_fp16 and not force_fp32 and x.place.type == "cuda")
+            else paddle.float32
         )
 
         c_skip = 1
         c_out = -sigma
         c_in = 1 / (sigma**2 + 1).sqrt()
         c_noise = (
-            self.M - 1 - self.round_sigma(sigma, return_index=True).to(torch.float32)
+            self.M - 1 - self.round_sigma(sigma, return_index=True).to(paddle.float32)
         )
 
         F_x = self.model(
@@ -468,12 +468,12 @@ class iDDPMPrecond(Module):
             class_labels=class_labels,
             **model_kwargs,
         )
-        if (F_x.dtype != dtype) and not torch.is_autocast_enabled():
-            raise ValueError(
-                f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
-            )
+        # if (F_x.dtype != dtype) and not paddle.is_autocast_enabled():
+        #     raise ValueError(
+        #         f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
+        #     )
 
-        D_x = c_skip * x + c_out * F_x[:, : self.img_channels].to(torch.float32)
+        D_x = c_skip * x + c_out * F_x[:, : self.img_channels].to(paddle.float32)
         return D_x
 
     def alpha_bar(self, j):
@@ -482,15 +482,15 @@ class iDDPMPrecond(Module):
 
         Parameters
         ----------
-        j : Union[int, torch.Tensor]
+        j : Union[int, paddle.Tensor]
             The timestep or set of timesteps for which to compute alpha_bar(j).
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The computed alpha_bar(j) value(s).
         """
-        j = torch.as_tensor(j)
+        j = paddle.to_tensor(j)
         return (0.5 * np.pi * j / self.M / (self.C_2 + 1)).sin() ** 2
 
     def round_sigma(self, sigma, return_index=False):
@@ -500,7 +500,7 @@ class iDDPMPrecond(Module):
 
         Parameters
         ----------
-        sigma : Union[float, list, torch.Tensor]
+        sigma : Union[float, list, paddle.Tensor]
             The sigma value(s) to round.
         return_index : bool, optional
             Whether to return the index/indices of the rounded value(s) in `u` instead
@@ -508,17 +508,17 @@ class iDDPMPrecond(Module):
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The rounded sigma value(s) or their index/indices in `u`, depending on the
             value of `return_index`.
         """
-        sigma = torch.as_tensor(sigma)
-        index = torch.cdist(
-            sigma.to(self.u.device).to(torch.float32).reshape(1, -1, 1),
-            self.u.reshape(1, -1, 1),
+        sigma = paddle.to_tensor(sigma)
+        index = paddle.cdist(
+            sigma.to(self.u.place).to(paddle.float32).reshape([1, -1, 1]),
+            self.u.reshape([1, -1, 1]),
         ).argmin(2)
         result = index if return_index else self.u[index.flatten()].to(sigma.dtype)
-        return result.reshape(sigma.shape).to(sigma.device)
+        return result.reshape(sigma.shape).to(sigma.place)
 
 
 @dataclass
@@ -606,19 +606,19 @@ class EDMPrecond(Module):
         )  # TODO needs better handling
 
     def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
+        x = x.to(paddle.float32)
+        sigma = sigma.to(paddle.float32).reshape([-1, 1, 1, 1])
         class_labels = (
             None
             if self.label_dim == 0
-            else torch.zeros([1, self.label_dim], device=x.device)
+            else paddle.zeros([1, self.label_dim]).to(x.place)
             if class_labels is None
-            else class_labels.to(torch.float32).reshape(-1, self.label_dim)
+            else class_labels.to(paddle.float32).reshape([-1, self.label_dim])
         )
         dtype = (
-            torch.float16
-            if (self.use_fp16 and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            paddle.float16
+            if (self.use_fp16 and not force_fp32 and x.place.type == "cuda")
+            else paddle.float32
         )
 
         c_skip = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
@@ -633,29 +633,29 @@ class EDMPrecond(Module):
             **model_kwargs,
         )
 
-        if (F_x.dtype != dtype) and not torch.is_autocast_enabled():
-            raise ValueError(
-                f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
-            )
-        D_x = c_skip * x + c_out * F_x.to(torch.float32)
+        # if (F_x.dtype != dtype) and not paddle.is_autocast_enabled():
+        #     raise ValueError(
+        #         f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
+        #     )
+        D_x = c_skip * x + c_out * F_x.to(paddle.float32)
         return D_x
 
     @staticmethod
-    def round_sigma(sigma: Union[float, List, torch.Tensor]):
+    def round_sigma(sigma: Union[float, List, paddle.Tensor]):
         """
         Convert a given sigma value(s) to a tensor representation.
 
         Parameters
         ----------
-        sigma : Union[float list, torch.Tensor]
+        sigma : Union[float list, paddle.Tensor]
             The sigma value(s) to convert.
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The tensor representation of the provided sigma value(s).
         """
-        return torch.as_tensor(sigma)
+        return paddle.to_tensor(sigma)
 
 
 @dataclass
@@ -767,14 +767,14 @@ class EDMPrecondSR(Module):
         **model_kwargs,
     ):
         # Concatenate input channels
-        x = torch.cat((x, img_lr), dim=1)
+        x = paddle.concat((x, img_lr), axis=1)
 
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
+        x = x.to(paddle.float32)
+        sigma = sigma.to(paddle.float32).reshape([-1, 1, 1, 1])
         dtype = (
-            torch.float16
-            if (self.use_fp16 and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            paddle.float16
+            if (self.use_fp16 and not force_fp32 and x.place.type == "cuda")
+            else paddle.float32
         )
 
         c_skip = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
@@ -789,18 +789,18 @@ class EDMPrecondSR(Module):
             **model_kwargs,
         )
 
-        if (F_x.dtype != dtype) and not torch.is_autocast_enabled():
-            raise ValueError(
-                f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
-            )
+        # if (F_x.dtype != dtype) and not paddle.is_autocast_enabled():
+        #     raise ValueError(
+        #         f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
+        #     )
 
         # Skip connection - for SR there's size mismatch bwtween input and output
         x = x[:, 0 : self.img_out_channels, :, :]
-        D_x = c_skip * x + c_out * F_x.to(torch.float32)
+        D_x = c_skip * x + c_out * F_x.to(paddle.float32)
         return D_x
 
     @staticmethod
-    def round_sigma(sigma: Union[float, List, torch.Tensor]):
+    def round_sigma(sigma: Union[float, List, paddle.Tensor]):
         """
         Convert a given sigma value(s) to a tensor representation.
         See EDMPrecond.round_sigma
@@ -808,7 +808,7 @@ class EDMPrecondSR(Module):
         return EDMPrecond.round_sigma(sigma)
 
 
-class _ConditionalPrecond(torch.nn.Module):
+class _ConditionalPrecond(paddle.nn.Layer):
     """EDM Preconditioner with appropriate handling of conditional inputs via concatenation
 
     This class is more modular since ``model`` is not constructed here.
@@ -818,7 +818,7 @@ class _ConditionalPrecond(torch.nn.Module):
     def __init__(
         self,
         *,
-        model: torch.nn.Module,
+        model: paddle.nn.Layer,
         img_resolution: int,
         img_channels: int,
         use_fp16=False,
@@ -856,12 +856,12 @@ class _ConditionalPrecond(torch.nn.Module):
         if sigma is None:
             raise ValueError("sigma must be provided, it cannot be None")
 
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
+        x = x.to(paddle.float32)
+        sigma = sigma.to(paddle.float32).reshape([-1, 1, 1, 1])
         dtype = (
-            torch.float16
-            if (self.use_fp16 and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            paddle.float16
+            if (self.use_fp16 and not force_fp32 and x.place.type == "cuda")
+            else paddle.float32
         )
 
         c_skip = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
@@ -872,8 +872,8 @@ class _ConditionalPrecond(torch.nn.Module):
         if condition is None:
             arg = c_in * x
         else:
-            condition = condition.to(torch.float32)
-            arg = torch.cat([c_in * x, condition], dim=1)
+            condition = condition.to(paddle.float32)
+            arg = paddle.concat([c_in * x, condition], axis=1)
 
         F_x = self.model(
             arg.to(dtype),
@@ -881,11 +881,11 @@ class _ConditionalPrecond(torch.nn.Module):
             class_labels=None,
             **model_kwargs,
         )
-        D_x = c_skip * x + c_out * F_x.to(torch.float32)
+        D_x = c_skip * x + c_out * F_x.to(paddle.float32)
         return D_x
 
     def round_sigma(self, sigma):
-        return torch.as_tensor(sigma)
+        return paddle.to_tensor(sigma)
 
 
 class EDMPrecondSRV2(_ConditionalPrecond, Module):
@@ -970,7 +970,7 @@ class EDMPrecondSRV2(_ConditionalPrecond, Module):
         )
 
 
-class VEPrecond_dfsr(torch.nn.Module):
+class VEPrecond_dfsr(paddle.nn.Layer):
     """
     Preconditioning for dfsr model, modified from class VEPrecond, where the input
     argument 'sigma' in forward propagation function is used to receive the timestep
@@ -1028,20 +1028,20 @@ class VEPrecond_dfsr(torch.nn.Module):
         )  # TODO needs better handling
 
     def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
+        x = x.to(paddle.float32)
+        sigma = sigma.to(paddle.float32).reshape([-1, 1, 1, 1])
         # print("sigma: ", sigma)
         class_labels = (
             None
             if self.label_dim == 0
-            else torch.zeros([1, self.label_dim], device=x.device)
+            else paddle.zeros([1, self.label_dim]).to(x.place)
             if class_labels is None
-            else class_labels.to(torch.float32).reshape(-1, self.label_dim)
+            else class_labels.to(paddle.float32).reshape([-1, self.label_dim])
         )
         dtype = (
-            torch.float16
-            if (self.use_fp16 and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            paddle.float16
+            if (self.use_fp16 and not force_fp32 and x.place.type == "cuda")
+            else paddle.float32
         )
 
         c_in = 1
@@ -1062,7 +1062,7 @@ class VEPrecond_dfsr(torch.nn.Module):
         return F_x
 
 
-class VEPrecond_dfsr_cond(torch.nn.Module):
+class VEPrecond_dfsr_cond(paddle.nn.Layer):
     """
     Preconditioning for dfsr model with physics-informed conditioning input, modified
     from class VEPrecond, where the input argument 'sigma' in forward propagation function
@@ -1127,7 +1127,7 @@ class VEPrecond_dfsr_cond(torch.nn.Module):
         )  # TODO needs better handling
 
         # modules to embed residual loss
-        self.conv_in = torch.nn.Conv2d(
+        self.conv_in = paddle.nn.Conv2D(
             img_channels,
             model_kwargs["model_channels"],
             kernel_size=3,
@@ -1135,16 +1135,16 @@ class VEPrecond_dfsr_cond(torch.nn.Module):
             padding=1,
             padding_mode="circular",
         )
-        self.emb_conv = torch.nn.Sequential(
-            torch.nn.Conv2d(
+        self.emb_conv = paddle.nn.Sequential(
+            paddle.nn.Conv2D(
                 img_channels,
                 model_kwargs["model_channels"],
                 kernel_size=1,
                 stride=1,
                 padding=0,
             ),
-            torch.nn.GELU(),
-            torch.nn.Conv2d(
+            paddle.nn.GELU(),
+            paddle.nn.Conv2D(
                 model_kwargs["model_channels"],
                 model_kwargs["model_channels"],
                 kernel_size=3,
@@ -1157,19 +1157,19 @@ class VEPrecond_dfsr_cond(torch.nn.Module):
         self.dataset_scale = dataset_scale
 
     def forward(self, x, sigma, class_labels=None, force_fp32=False, **model_kwargs):
-        x = x.to(torch.float32)
-        sigma = sigma.to(torch.float32).reshape(-1, 1, 1, 1)
+        x = x.to(paddle.float32)
+        sigma = sigma.to(paddle.float32).reshape([-1, 1, 1, 1])
         class_labels = (
             None
             if self.label_dim == 0
-            else torch.zeros([1, self.label_dim], device=x.device)
+            else paddle.zeros([1, self.label_dim]).to(x.place)
             if class_labels is None
-            else class_labels.to(torch.float32).reshape(-1, self.label_dim)
+            else class_labels.to(paddle.float32).reshape([-1, self.label_dim])
         )
         dtype = (
-            torch.float16
-            if (self.use_fp16 and not force_fp32 and x.device.type == "cuda")
-            else torch.float32
+            paddle.float16
+            if (self.use_fp16 and not force_fp32 and x.place.type == "cuda")
+            else paddle.float32
         )
 
         c_in = 1
@@ -1182,7 +1182,7 @@ class VEPrecond_dfsr_cond(torch.nn.Module):
         )
         x = self.conv_in(x)
         cond_emb = self.emb_conv(dx)
-        x = torch.cat((x, cond_emb), dim=1)
+        x = paddle.concat((x, cond_emb), axis=1)
 
         F_x = self.model(
             (c_in * x).to(dtype),
@@ -1204,7 +1204,7 @@ class VEPrecond_dfsr_cond(torch.nn.Module):
 
         Parameters
         ----------
-        w: torch.Tensor
+        w: paddle.Tensor
             The fluid flow data sample (vorticity).
         re: float
             The value of Reynolds number used in the governing Navier-Stokes equation.
@@ -1214,7 +1214,7 @@ class VEPrecond_dfsr_cond(torch.nn.Module):
 
         Returns
         -------
-        torch.Tensor
+        paddle.Tensor
             The computed vorticity gradient.
         """
 
@@ -1222,35 +1222,35 @@ class VEPrecond_dfsr_cond(torch.nn.Module):
         w = w.clone()
         w.requires_grad_(True)
         nx = w.size(2)
-        device = w.device
+        device = w.place
 
-        w_h = torch.fft.fft2(w[:, 1:-1], dim=[2, 3])
+        w_h = paddle.fft.fft2(w[:, 1:-1], axis=[2, 3])
         # Wavenumbers in y-direction
         k_max = nx // 2
         N = nx
         k_x = (
-            torch.cat(
+            paddle.concat(
                 (
-                    torch.arange(start=0, end=k_max, step=1, device=device),
-                    torch.arange(start=-k_max, end=0, step=1, device=device),
+                    paddle.arange(start=0, end=k_max, step=1).to(device),
+                    paddle.arange(start=-k_max, end=0, step=1).to(device),
                 ),
                 0,
             )
-            .reshape(N, 1)
-            .repeat(1, N)
-            .reshape(1, 1, N, N)
+            .reshape([N, 1])
+            .tile([1, N])
+            .reshape([1, 1, N, N])
         )
         k_y = (
-            torch.cat(
+            paddle.concat(
                 (
-                    torch.arange(start=0, end=k_max, step=1, device=device),
-                    torch.arange(start=-k_max, end=0, step=1, device=device),
+                    paddle.arange(start=0, end=k_max, step=1).to(device),
+                    paddle.arange(start=-k_max, end=0, step=1).to(device),
                 ),
                 0,
             )
-            .reshape(1, N)
-            .repeat(N, 1)
-            .reshape(1, 1, N, N)
+            .reshape([1, N])
+            .tile([N, 1])
+            .reshape([1, 1, N, N])
         )
         # Negative Laplacian in Fourier space
         lap = k_x**2 + k_y**2
@@ -1263,23 +1263,23 @@ class VEPrecond_dfsr_cond(torch.nn.Module):
         wy_h = 1j * k_y * w_h
         wlap_h = -lap * w_h
 
-        u = torch.fft.irfft2(u_h[..., :, : k_max + 1], dim=[2, 3])
-        v = torch.fft.irfft2(v_h[..., :, : k_max + 1], dim=[2, 3])
-        wx = torch.fft.irfft2(wx_h[..., :, : k_max + 1], dim=[2, 3])
-        wy = torch.fft.irfft2(wy_h[..., :, : k_max + 1], dim=[2, 3])
-        wlap = torch.fft.irfft2(wlap_h[..., :, : k_max + 1], dim=[2, 3])
+        u = paddle.fft.irfft2(u_h[..., :, : k_max + 1], axis=[2, 3])
+        v = paddle.fft.irfft2(v_h[..., :, : k_max + 1], axis=[2, 3])
+        wx = paddle.fft.irfft2(wx_h[..., :, : k_max + 1], axis=[2, 3])
+        wy = paddle.fft.irfft2(wy_h[..., :, : k_max + 1], axis=[2, 3])
+        wlap = paddle.fft.irfft2(wlap_h[..., :, : k_max + 1], axis=[2, 3])
         advection = u * wx + v * wy
 
         wt = (w[:, 2:, :, :] - w[:, :-2, :, :]) / (2 * dt)
 
         # establish forcing term
-        x = torch.linspace(0, 2 * np.pi, nx + 1, device=device)
+        x = paddle.linspace(0, 2 * np.pi, nx + 1).to(device)
         x = x[0:-1]
-        X, Y = torch.meshgrid(x, x)
-        f = -4 * torch.cos(4 * Y)
+        X, Y = paddle.meshgrid(x, x)
+        f = -4 * paddle.cos(4 * Y)
 
         residual = wt + (advection - (1.0 / re) * wlap + 0.1 * w[:, 1:-1]) - f
         residual_loss = (residual**2).mean()
-        dw = torch.autograd.grad(residual_loss, w)[0]
+        dw = paddle.autograd.grad(residual_loss, w)[0]
 
         return dw

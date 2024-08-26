@@ -20,7 +20,7 @@ import logging
 from urllib.parse import urlparse
 
 import numpy as np
-import torch
+import paddle
 import xarray
 
 import modulus  # noqa: F401 for docs
@@ -32,7 +32,7 @@ from modulus.utils.zenith_angle import cos_zenith_angle
 logger = logging.getLogger(__name__)
 
 
-# class _DummyModule(torch.nn.Module):
+# class _DummyModule(paddle.nn.Layer):
 #     """Hack to handle that checkpoint parameter names begin with "module." """
 
 #     def __init__(self, model):
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 #         self.module = model
 
 
-class _CosZenWrapper(torch.nn.Module):
+class _CosZenWrapper(paddle.nn.Layer):
     def __init__(self, model, lon, lat):
         super().__init__()
         self.model = model
@@ -51,13 +51,13 @@ class _CosZenWrapper(torch.nn.Module):
         lon_grid, lat_grid = np.meshgrid(self.lon, self.lat)
         cosz = cos_zenith_angle(time, lon_grid, lat_grid)
         cosz = cosz.astype(np.float32)
-        z = torch.from_numpy(cosz).to(device=x.device)
-        x, z = torch.broadcast_tensors(x, z)
-        x = torch.cat([x, z], dim=1)
+        z = paddle.to_tensor(cosz).to(device=x.place)
+        x, z = paddle.broadcast_tensors(x, z)
+        x = paddle.concat([x, z], axis=1)
         return self.model(x)
 
 
-# def sfno(package: filesystem.Package, pretrained: bool = True) -> torch.nn.Module:
+# def sfno(package: filesystem.Package, pretrained: bool = True) -> paddle.nn.Layer:
 #     """Load SFNO model from checkpoints trained with era5_wind"""
 #     path = package.get("config.json")
 #     params = ParamsBase.from_json(path)
@@ -66,11 +66,11 @@ class _CosZenWrapper(torch.nn.Module):
 
 #     if pretrained:
 #         weights = package.get("weights.tar")
-#         checkpoint = torch.load(weights)
+#         checkpoint = paddle.load(weights)
 #         load_me = _DummyModule(model)
 #         state = checkpoint["model_state"]
 #         state = {"module.device_buffer": model.device_buffer, **state}
-#         load_me.load_state_dict(state)
+#         load_me.set_state_dict(state)
 
 #     if params.add_zenith:
 #         nlat = params.img_shape_x
@@ -82,7 +82,7 @@ class _CosZenWrapper(torch.nn.Module):
 #     return model
 
 
-class _GraphCastWrapper(torch.nn.Module):
+class _GraphCastWrapper(paddle.nn.Layer):
     def __init__(self, model, dtype):
         super().__init__()
         self.model = model
@@ -96,7 +96,7 @@ class _GraphCastWrapper(torch.nn.Module):
 
 def graphcast_34ch(
     package: filesystem.Package, pretrained: bool = True
-) -> torch.nn.Module:
+) -> paddle.nn.Layer:
     """Load Graphcast 34 channel model from a checkpoint"""
     num_channels = 34
 
@@ -116,26 +116,26 @@ def graphcast_34ch(
             hidden_dim=512,
             do_concat_trick=True,
         )
-        .to(dtype=torch.bfloat16)
+        .to(dtype=paddle.bfloat16)
         .to("cuda")  # TODO hardcoded
     )
 
     # set model to inference mode
     base_model.eval()
 
-    model = _GraphCastWrapper(base_model, torch.bfloat16)
+    model = _GraphCastWrapper(base_model, paddle.bfloat16)
 
     if pretrained:
         path = package.get("weights.tar")
-        checkpoint = torch.load(path)
+        checkpoint = paddle.load(path)
         weights = checkpoint["model_state_dict"]
         weights = _fix_state_dict_keys(weights, add_module=False)
-        model.model.load_state_dict(weights, strict=True)
+        model.model.set_state_dict(weights, strict=True)
 
     return model
 
 
-class _DLWPWrapper(torch.nn.Module):
+class _DLWPWrapper(paddle.nn.Layer):
     def __init__(
         self,
         model,
@@ -169,19 +169,23 @@ class _DLWPWrapper(torch.nn.Module):
         self.output_map_wts = xarray.open_dataset(cs_to_ll_mapfile_path)
 
     def prepare_input(self, input, time):
-        device = input.device
+        device = input.place
         dtype = input.dtype
 
         i = self.input_map_wts.row.values - 1
         j = self.input_map_wts.col.values - 1
         data = self.input_map_wts.S.values
-        M = torch.sparse_coo_tensor(np.array((i, j)), data).type(dtype).to(device)
+        M = (
+            paddle.sparse.sparse_coo_tensor(np.array((i, j)), data)
+            .astype(dtype)
+            .to(device)
+        )
 
         N, T, C = input.shape[0], input.shape[1], input.shape[2]
-        input = (M @ input.reshape(N * T * C, -1).T).T
+        input = (M @ input.reshape([N * T * C, -1]).T).T
         S = int((M.shape[0] / 6) ** 0.5)
-        input = input.reshape(N, T, C, 6, S, S)
-        input_list = list(torch.split(input, 1, dim=1))
+        input = input.reshape([N, T, C, 6, S, S])
+        input_list = list(paddle.split(input, 1, axis=1))
         input_list = [tensor.squeeze(1) for tensor in input_list]
         repeat_vals = (input.shape[0], -1, -1, -1, -1)  # repeat along batch dimension
         for i in range(len(input_list)):
@@ -198,47 +202,55 @@ class _DLWPWrapper(torch.nn.Module):
                 1 / np.pi
             )  # subtract mean value
             tisr = (
-                torch.tensor(tisr, dtype=dtype)
+                paddle.to_tensor(tisr, dtype=dtype)
                 .to(device)
-                .unsqueeze(dim=0)
-                .unsqueeze(dim=0)
+                .unsqueeze(axis=0)
+                .unsqueeze(axis=0)
             )  # add channel and batch size dimension
             tisr = tisr.expand(*repeat_vals)  # TODO - find better way to batch TISR
-            input_list[i] = torch.cat(
-                (input_list[i], tisr), dim=1
+            input_list[i] = paddle.concat(
+                (input_list[i], tisr), axis=1
             )  # concat along channel dim
 
-        input_model = torch.cat(
-            input_list, dim=1
+        input_model = paddle.concat(
+            input_list, axis=1
         )  # concat the time dimension into channels
 
-        lsm_tensor = torch.tensor(self.lsm, dtype=dtype).to(device).unsqueeze(dim=0)
+        lsm_tensor = (
+            paddle.to_tensor(self.lsm, dtype=dtype).to(device).unsqueeze(axis=0)
+        )
         lsm_tensor = lsm_tensor.expand(*repeat_vals)
         topographic_height_tensor = (
-            torch.tensor((self.topographic_height - 3.724e03) / 8.349e03, dtype=dtype)
+            paddle.to_tensor(
+                (self.topographic_height - 3.724e03) / 8.349e03, dtype=dtype
+            )
             .to(device)
-            .unsqueeze(dim=0)
+            .unsqueeze(axis=0)
         )
         topographic_height_tensor = topographic_height_tensor.expand(*repeat_vals)
 
-        input_model = torch.cat(
-            (input_model, lsm_tensor, topographic_height_tensor), dim=1
+        input_model = paddle.concat(
+            (input_model, lsm_tensor, topographic_height_tensor), axis=1
         )
         return input_model
 
     def prepare_output(self, output):
-        device = output.device
+        device = output.place
         dtype = output.dtype
-        output = torch.split(output, output.shape[1] // 2, dim=1)
-        output = torch.stack(output, dim=1)  # add time dimension back in
+        output = paddle.split(output, output.shape[1] // 2, axis=1)
+        output = paddle.stack(output, axis=1)  # add time dimension back in
         i = self.output_map_wts.row.values - 1
         j = self.output_map_wts.col.values - 1
         data = self.output_map_wts.S.values
-        M = torch.sparse_coo_tensor(np.array((i, j)), data).type(dtype).to(device)
+        M = (
+            paddle.sparse.sparse_coo_tensor(np.array((i, j)), data)
+            .astype(dtype)
+            .to(device)
+        )
 
         N, T, C = output.shape[0], 2, output.shape[2]
-        output = (M @ output.reshape(N * T * C, -1).T).T
-        output = output.reshape(N, T, C, 721, 1440)
+        output = (M @ output.reshape([N * T * C, -1]).T).T
+        output = output.reshape([N, T, C, 721, 1440])
 
         return output
 
@@ -297,9 +309,9 @@ def dlwp(package, pretrained=True):
 
         if pretrained:
             weights_path = package.get("weights.pt")
-            weights = torch.load(weights_path)
+            weights = paddle.load(weights_path)
             fixed_weights = _fix_state_dict_keys(weights, add_module=False)
-            core_model.load_state_dict(fixed_weights)
+            core_model.set_state_dict(fixed_weights)
 
         model = _DLWPWrapper(
             core_model,

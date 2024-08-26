@@ -14,11 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-from torch import nn
+import paddle
+from paddle import nn
 
 
-class CubeEmbedding(nn.Module):
+class CubeEmbedding(nn.Layer):
     """
     3D Image Cube Embedding
     Args:
@@ -26,7 +26,7 @@ class CubeEmbedding(nn.Module):
         patch_size (tuple[int]): Patch token size [T, Lat, Lon].
         in_chans (int): Number of input image channels.
         embed_dim (int): Number of projection output channels.
-        norm_layer (nn.Module, optional): Normalization layer. Default: torch.nn.LayerNorm
+        norm_layer (nn.Layer, optional): Normalization layer. Default: paddle.nn.LayerNorm
     """
 
     def __init__(
@@ -42,7 +42,7 @@ class CubeEmbedding(nn.Module):
         self.img_size = img_size
         self.patches_resolution = patches_resolution
         self.embed_dim = embed_dim
-        self.proj = nn.Conv3d(
+        self.proj = nn.Conv3D(
             in_chans, embed_dim, kernel_size=patch_size, stride=patch_size
         )
         if norm_layer is not None:
@@ -50,46 +50,50 @@ class CubeEmbedding(nn.Module):
         else:
             self.norm = None
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: paddle.Tensor):
         B, C, T, Lat, Lon = x.shape
-        x = self.proj(x).reshape(B, self.embed_dim, -1).transpose(1, 2)  # B T*Lat*Lon C
+        x = (
+            self.proj(x).reshape([B, self.embed_dim, -1]).transpose([0, 2, 1])
+        )  # B T*Lat*Lon C
         if self.norm is not None:
             x = self.norm(x)
-        x = x.transpose(1, 2).reshape(B, self.embed_dim, *self.patches_resolution)
+        x = x.transpose([0, 2, 1]).reshape(
+            [B, self.embed_dim, *self.patches_resolution]
+        )
         return x
 
 
-class ConvBlock(nn.Module):
+class ConvBlock(nn.Layer):
     """
-    Conv2d block
+    Conv2D block
     Args:
         in_chans (int): Number of input channels.
         out_chans (int): Number of output channels.
         num_groups (int): Number of groups to separate the channels into for group normalization.
-        num_residuals (int, optinal): Number of Conv2d operator. Default: 2
+        num_residuals (int, optinal): Number of Conv2D operator. Default: 2
         upsample (int, optinal): 1: Upsample, 0: Conv, -1: Downsample. Default: 0
     """
 
     def __init__(self, in_chans, out_chans, num_groups, num_residuals=2, upsample=0):
         super().__init__()
         if upsample == 1:
-            self.conv = nn.ConvTranspose2d(in_chans, out_chans, kernel_size=2, stride=2)
+            self.conv = nn.Conv2DTranspose(in_chans, out_chans, kernel_size=2, stride=2)
         elif upsample == -1:
-            self.conv = nn.Conv2d(
+            self.conv = nn.Conv2D(
                 in_chans, out_chans, kernel_size=(3, 3), stride=2, padding=1
             )
         elif upsample == 0:
-            self.conv = nn.Conv2d(
+            self.conv = nn.Conv2D(
                 in_chans, out_chans, kernel_size=(3, 3), stride=1, padding=1
             )
 
         blk = []
         for i in range(num_residuals):
             blk.append(
-                nn.Conv2d(out_chans, out_chans, kernel_size=3, stride=1, padding=1)
+                nn.Conv2D(out_chans, out_chans, kernel_size=3, stride=1, padding=1)
             )
             blk.append(nn.GroupNorm(num_groups, out_chans))
-            blk.append(nn.SiLU())
+            blk.append(nn.Silu())
 
         self.b = nn.Sequential(*blk)
 

@@ -14,13 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import paddle
+import paddle.nn as nn
+import paddle.nn.functional as F
 
 import modulus  # noqa: F401 for docs
 
-Tensor = torch.Tensor
+Tensor = paddle.Tensor
 
 
 def weight_fact(w, mean=1.0, stddev=0.1):
@@ -29,18 +29,18 @@ def weight_fact(w, mean=1.0, stddev=0.1):
 
     Parameters
     ----------
-    w : torch.Tensor
+    w : paddle.Tensor
     mean : float, optional, default=1.0, mean of the normal distribution to sample the random scale factor
     stddev: float, optional, default=0.1, standard deviation of the normal distribution to sample the random scale factor
     """
 
-    g = torch.normal(mean, stddev, size=(w.shape[0], 1))
-    g = torch.exp(g)
+    g = paddle.normal(mean, stddev, shape=(w.shape[0], 1))
+    g = paddle.exp(g)
     v = w / g
     return g, v
 
 
-class WeightFactLinear(nn.Module):
+class WeightFactLinear(nn.Layer):
     """Weight Factorization Layer for 2D Tensors, more details in https://arxiv.org/abs/2210.01274
 
     Parameters
@@ -58,10 +58,10 @@ class WeightFactLinear(nn.Module):
     Example
     -------
     >>> wfact = modulus.models.layers.WeightFactLinear(2,4)
-    >>> input = torch.rand(2,2)
+    >>> input = paddle.rand(2,2)
     >>> output = wfact(input)
     >>> output.size()
-    torch.Size([2, 4])
+    paddle.Size([2, 4])
     """
 
     def __init__(
@@ -78,9 +78,17 @@ class WeightFactLinear(nn.Module):
         self.mean = mean
         self.stddev = stddev
 
-        self.weight = nn.Parameter(torch.empty((out_features, in_features)))
+        self.weight = self.create_parameter(
+            (out_features, in_features),
+            default_initializer=nn.initializer.Assign(
+                paddle.empty((out_features, in_features))
+            ),
+        )
         if bias:
-            self.bias = nn.Parameter(torch.empty(out_features))
+            self.bias = self.create_parameter(
+                [out_features],
+                default_initializer=nn.initializer.Assign(paddle.empty([out_features])),
+            )
         else:
             self.register_parameter("bias", None)
         self.reset_parameters()
@@ -89,8 +97,12 @@ class WeightFactLinear(nn.Module):
         """Factorize weights and reset bias"""
         nn.init.xavier_uniform_(self.weight)
         g, v = weight_fact(self.weight.detach(), mean=self.mean, stddev=self.stddev)
-        self.g = nn.Parameter(g)
-        self.v = nn.Parameter(v)
+        self.g = self.create_parameter(
+            g.shape, default_initializer=nn.initializer.Assign(g)
+        )
+        self.v = self.create_parameter(
+            v.shape, default_initializer=nn.initializer.Assign(v)
+        )
         self.weight = None  # remove the weight parameter
 
         if self.bias is not None:

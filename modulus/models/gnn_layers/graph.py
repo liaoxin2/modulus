@@ -177,7 +177,7 @@ class CuGraphCSC:
                 coordinate_separators_max=coordinate_separators_max,
                 partition_size=partition_size,
                 partition_rank=partition_rank,
-                device=dist_manager.device,
+                device=dist_manager.place,
             )
 
         graph_csc = CuGraphCSC(
@@ -466,7 +466,7 @@ class CuGraphCSC:
                 0,
                 graph_offsets.size(0) - 1,
                 dtype=graph_offsets.dtype,
-                device=graph_offsets.device,
+                device=graph_offsets.place,
             )
             dst_indices = torch.repeat_interleave(dst_indices, dst_degree, dim=0)
 

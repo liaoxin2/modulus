@@ -16,12 +16,12 @@
 
 from typing import Sequence
 
-import torch as th
+import paddle as pd
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
 
-class UNetEncoder(th.nn.Module):
+class UNetEncoder(pd.nn.Layer):
     """Generic UNetEncoder that can be applied to arbitrary meshes."""
 
     def __init__(
@@ -94,9 +94,9 @@ class UNetEncoder(th.nn.Module):
             )
             old_channels = curr_channel
 
-            self.encoder.append(th.nn.Sequential(*modules))
+            self.encoder.append(pd.nn.Sequential(*modules))
 
-        self.encoder = th.nn.ModuleList(self.encoder)
+        self.encoder = pd.nn.LayerList(self.encoder)
 
     def forward(self, inputs: Sequence) -> Sequence:
         """
