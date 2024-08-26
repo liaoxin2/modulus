@@ -16,8 +16,9 @@
 
 import os
 
+import paddle
 import pytest
-import torch
+from paddle import distributed as dist
 
 from modulus.distributed import (
     DistributedManager,
@@ -28,7 +29,8 @@ from modulus.distributed import (
 )
 
 distributed_test = pytest.mark.skipif(
-    not torch.distributed.is_available(), reason="PyTorch distributed not available"
+    not paddle.distributed.is_available(),
+    reason="PaddlePaddle distributed not available",
 )
 
 
@@ -44,7 +46,7 @@ def test_manager():
 
     assert manager.is_initialized()
     assert (
-        manager.distributed == torch.distributed.is_available()
+        manager.distributed == paddle.distributed.is_available()
     ), "Manager should be in serial mode"
     assert manager.rank == 0
     assert manager.world_size == 1
@@ -125,7 +127,7 @@ def test_manager_specified_initialization():
     assert manager.is_initialized()
     assert manager._initialization_method == "slurm"
     assert (
-        manager.distributed == torch.distributed.is_available()
+        manager.distributed == paddle.distributed.is_available()
     ), "Manager should be in serial mode"
     assert manager.rank == 0
     assert manager.world_size == 1
@@ -139,7 +141,7 @@ def test_manager_specified_initialization():
     assert manager.is_initialized()
     assert manager._initialization_method == "openmpi"
     assert (
-        manager.distributed == torch.distributed.is_available()
+        manager.distributed == paddle.distributed.is_available()
     ), "Manager should be in serial mode"
     assert manager.rank == 0
     assert manager.world_size == 1
@@ -280,16 +282,17 @@ def run_process_groups(rank, model_parallel_size, verbose):
 
 @pytest.mark.multigpu
 def test_process_groups():
-    num_gpus = torch.cuda.device_count()
+    num_gpus = paddle.device.cuda.device_count()
     assert num_gpus >= 2, "Not enough GPUs available for test"
     model_parallel_size = 2
+    rank = dist.get_rank()
     verbose = False  # Change to True for debug
 
-    torch.multiprocessing.set_start_method("spawn", force=True)
+    # paddle.multiprocessing.set_start_method("spawn", force=True)
 
-    torch.multiprocessing.spawn(
+    paddle.distributed.spawn(
         run_process_groups,
-        args=(model_parallel_size, verbose),
+        args=(rank, model_parallel_size, verbose),
         nprocs=model_parallel_size,
         join=True,
         daemon=True,
@@ -352,16 +355,17 @@ def run_process_groups_from_config(rank, model_parallel_size, verbose):
 
 @pytest.mark.multigpu
 def test_process_groups_from_config():
-    num_gpus = torch.cuda.device_count()
+    num_gpus = paddle.device.cuda.device_count()
     assert num_gpus >= 2, "Not enough GPUs available for test"
     model_parallel_size = 2
+    rank = dist.get_rank()
     verbose = False  # Change to True for debug
 
-    torch.multiprocessing.set_start_method("spawn", force=True)
+    # paddle.multiprocessing.set_start_method("spawn", force=True)
 
-    torch.multiprocessing.spawn(
+    dist.spawn(
         run_process_groups_from_config,
-        args=(model_parallel_size, verbose),
+        args=(rank, model_parallel_size, verbose),
         nprocs=model_parallel_size,
         join=True,
         daemon=True,

@@ -16,9 +16,10 @@
 
 import os
 
+import paddle
+import paddle.nn as nn
 import pytest
-import torch
-import torch.nn as nn
+from paddle import distributed as dist
 
 from modulus.distributed import (
     DistributedManager,
@@ -56,14 +57,14 @@ def run_test_reduce_loss(rank, world_size):
 
 
 def run_test_mark_shared(rank, world_size):
-    class TestModule(nn.Module):
+    class TestModule(nn.Layer):
         def __init__(self):
             super().__init__()
             self.lin_1 = nn.Linear(4, 2)
             self.lin_2 = nn.Linear(2, 4)
 
         def forward(self, x):
-            return torch.sigmoid(self.lin_2(torch.tanh(self.lin_1(x))))
+            return paddle.nn.functional.sigmoid(self.lin_2(paddle.tanh(self.lin_1(x))))
 
     os.environ["RANK"] = f"{rank}"
     os.environ["WORLD_SIZE"] = f"{world_size}"
@@ -79,13 +80,13 @@ def run_test_mark_shared(rank, world_size):
     manager = DistributedManager()
     assert manager.is_initialized()
 
-    torch.manual_seed(42 * world_size + rank)
+    paddle.seed(42 * world_size + rank)
     ref_module = TestModule().to(device=manager.device)
-    torch.manual_seed(42 * world_size + rank)
+    paddle.seed(42 * world_size + rank)
     dist_module = TestModule().to(device=manager.device)
-    x = torch.ones(4, device=manager.device)
+    x = paddle.ones([4]).to(device=manager.device)
     ref_out = ref_module(x)
-    ref_out.backward(torch.ones_like(ref_out))
+    ref_out.backward(paddle.ones_like(ref_out))
     ref_lin_1_weight_grad = _reduce(
         ref_module.lin_1.weight.grad.clone().detach(),
         group=manager.group("shared_parallel"),
@@ -99,14 +100,14 @@ def run_test_mark_shared(rank, world_size):
 
     # mark lin_1 as shared, lin_2 is not touched
     mark_module_as_shared(dist_module.lin_1, "shared_parallel")
-    dist_module.zero_grad()
+    dist_module.clear_grad()
     dist_out = dist_module(x)
-    dist_out.backward(torch.ones_like(dist_out))
-    assert torch.allclose(ref_out, dist_out)
-    assert torch.allclose(ref_module.lin_2.weight.grad, dist_module.lin_2.weight.grad)
-    assert torch.allclose(ref_module.lin_2.bias.grad, dist_module.lin_2.bias.grad)
-    assert torch.allclose(ref_lin_1_weight_grad, dist_module.lin_1.weight.grad)
-    assert torch.allclose(ref_lin_1_bias_grad, dist_module.lin_1.bias.grad)
+    dist_out.backward(paddle.ones_like(dist_out))
+    assert paddle.allclose(ref_out, dist_out)
+    assert paddle.allclose(ref_module.lin_2.weight.grad, dist_module.lin_2.weight.grad)
+    assert paddle.allclose(ref_module.lin_2.bias.grad, dist_module.lin_2.bias.grad)
+    assert paddle.allclose(ref_lin_1_weight_grad, dist_module.lin_1.weight.grad)
+    assert paddle.allclose(ref_lin_1_bias_grad, dist_module.lin_1.bias.grad)
 
     ref_lin_2_weight_grad = _reduce(
         ref_module.lin_2.weight.grad.clone().detach(),
@@ -123,51 +124,51 @@ def run_test_mark_shared(rank, world_size):
     with pytest.raises(RuntimeError):
         unmark_module_as_shared(dist_module.lin_2)
     unmark_module_as_shared(dist_module.lin_1)
-    dist_module.zero_grad()
+    dist_module.clear_grad()
     dist_out = dist_module(x)
-    dist_out.backward(torch.ones_like(dist_out))
-    assert torch.allclose(ref_out, dist_out)
-    assert torch.allclose(ref_module.lin_2.weight.grad, dist_module.lin_2.weight.grad)
-    assert torch.allclose(ref_module.lin_2.bias.grad, dist_module.lin_2.bias.grad)
-    assert torch.allclose(ref_module.lin_1.weight.grad, dist_module.lin_1.weight.grad)
-    assert torch.allclose(ref_module.lin_1.bias.grad, dist_module.lin_1.bias.grad)
+    dist_out.backward(paddle.ones_like(dist_out))
+    assert paddle.allclose(ref_out, dist_out)
+    assert paddle.allclose(ref_module.lin_2.weight.grad, dist_module.lin_2.weight.grad)
+    assert paddle.allclose(ref_module.lin_2.bias.grad, dist_module.lin_2.bias.grad)
+    assert paddle.allclose(ref_module.lin_1.weight.grad, dist_module.lin_1.weight.grad)
+    assert paddle.allclose(ref_module.lin_1.bias.grad, dist_module.lin_1.bias.grad)
 
     # mark lin_2 as shared
     mark_module_as_shared(dist_module.lin_2, "shared_parallel")
-    dist_module.zero_grad()
+    dist_module.clear_grad()
     dist_out = dist_module(x)
-    dist_out.backward(torch.ones_like(dist_out))
-    assert torch.allclose(ref_lin_2_weight_grad, dist_module.lin_2.weight.grad)
-    assert torch.allclose(ref_lin_2_bias_grad, dist_module.lin_2.bias.grad)
-    assert torch.allclose(ref_module.lin_1.weight.grad, dist_module.lin_1.weight.grad)
-    assert torch.allclose(ref_module.lin_1.bias.grad, dist_module.lin_1.bias.grad)
+    dist_out.backward(paddle.ones_like(dist_out))
+    assert paddle.allclose(ref_lin_2_weight_grad, dist_module.lin_2.weight.grad)
+    assert paddle.allclose(ref_lin_2_bias_grad, dist_module.lin_2.bias.grad)
+    assert paddle.allclose(ref_module.lin_1.weight.grad, dist_module.lin_1.weight.grad)
+    assert paddle.allclose(ref_module.lin_1.bias.grad, dist_module.lin_1.bias.grad)
 
     # unmark lin_2 again (unmarking lin_1 should throw an error)
     with pytest.raises(RuntimeError):
         unmark_module_as_shared(dist_module.lin_1)
 
     unmark_module_as_shared(dist_module.lin_2)
-    dist_module.zero_grad()
+    dist_module.clear_grad()
     dist_out = dist_module(x)
-    dist_out.backward(torch.ones_like(dist_out))
-    assert torch.allclose(ref_out, dist_out)
-    assert torch.allclose(ref_module.lin_2.weight.grad, dist_module.lin_2.weight.grad)
-    assert torch.allclose(ref_module.lin_2.bias.grad, dist_module.lin_2.bias.grad)
-    assert torch.allclose(ref_module.lin_1.weight.grad, dist_module.lin_1.weight.grad)
-    assert torch.allclose(ref_module.lin_1.bias.grad, dist_module.lin_1.bias.grad)
+    dist_out.backward(paddle.ones_like(dist_out))
+    assert paddle.allclose(ref_out, dist_out)
+    assert paddle.allclose(ref_module.lin_2.weight.grad, dist_module.lin_2.weight.grad)
+    assert paddle.allclose(ref_module.lin_2.bias.grad, dist_module.lin_2.bias.grad)
+    assert paddle.allclose(ref_module.lin_1.weight.grad, dist_module.lin_1.weight.grad)
+    assert paddle.allclose(ref_module.lin_1.bias.grad, dist_module.lin_1.bias.grad)
 
     # mark whole module as shared, but don't recurse
     # in this set, this should result in parameters behaving
     # as they would not be shared
     mark_module_as_shared(dist_module, "shared_parallel", recurse=False)
-    dist_module.zero_grad()
+    dist_module.clear_grad()
     dist_out = dist_module(x)
-    dist_out.backward(torch.ones_like(dist_out))
-    assert torch.allclose(ref_out, dist_out)
-    assert torch.allclose(ref_module.lin_2.weight.grad, dist_module.lin_2.weight.grad)
-    assert torch.allclose(ref_module.lin_2.bias.grad, dist_module.lin_2.bias.grad)
-    assert torch.allclose(ref_module.lin_1.weight.grad, dist_module.lin_1.weight.grad)
-    assert torch.allclose(ref_module.lin_1.bias.grad, dist_module.lin_1.bias.grad)
+    dist_out.backward(paddle.ones_like(dist_out))
+    assert paddle.allclose(ref_out, dist_out)
+    assert paddle.allclose(ref_module.lin_2.weight.grad, dist_module.lin_2.weight.grad)
+    assert paddle.allclose(ref_module.lin_2.bias.grad, dist_module.lin_2.bias.grad)
+    assert paddle.allclose(ref_module.lin_1.weight.grad, dist_module.lin_1.weight.grad)
+    assert paddle.allclose(ref_module.lin_1.bias.grad, dist_module.lin_1.bias.grad)
 
     # test recurse in unmark and unmark whole model for final test
     with pytest.raises(RuntimeError):
@@ -176,13 +177,13 @@ def run_test_mark_shared(rank, world_size):
 
     # mark whole module as shared (both layers now should be shared)
     mark_module_as_shared(dist_module, "shared_parallel", recurse=True)
-    dist_module.zero_grad()
+    dist_module.clear_grad()
     dist_out = dist_module(x)
-    dist_out.backward(torch.ones_like(dist_out))
-    assert torch.allclose(ref_lin_2_weight_grad, dist_module.lin_2.weight.grad)
-    assert torch.allclose(ref_lin_2_bias_grad, dist_module.lin_2.bias.grad)
-    assert torch.allclose(ref_lin_1_weight_grad, dist_module.lin_1.weight.grad)
-    assert torch.allclose(ref_lin_1_bias_grad, dist_module.lin_1.bias.grad)
+    dist_out.backward(paddle.ones_like(dist_out))
+    assert paddle.allclose(ref_lin_2_weight_grad, dist_module.lin_2.weight.grad)
+    assert paddle.allclose(ref_lin_2_bias_grad, dist_module.lin_2.bias.grad)
+    assert paddle.allclose(ref_lin_1_weight_grad, dist_module.lin_1.weight.grad)
+    assert paddle.allclose(ref_lin_1_bias_grad, dist_module.lin_1.bias.grad)
 
     DistributedManager.cleanup()
     del os.environ["RANK"]
@@ -193,15 +194,19 @@ def run_test_mark_shared(rank, world_size):
 
 @pytest.mark.multigpu
 def test_reduce_loss():
-    num_gpus = torch.cuda.device_count()
+    num_gpus = paddle.device.cuda.device_count()
     assert num_gpus > 1
+    rank = dist.get_rank()
     world_size = num_gpus
 
-    torch.multiprocessing.set_start_method("spawn", force=True)
+    # paddle.multiprocessing.set_start_method("spawn", force=True)
 
-    torch.multiprocessing.spawn(
+    dist.spawn(
         run_test_reduce_loss,
-        args=(world_size,),
+        args=(
+            rank,
+            world_size,
+        ),
         nprocs=world_size,
         join=True,
         daemon=True,
@@ -210,15 +215,19 @@ def test_reduce_loss():
 
 @pytest.mark.multigpu
 def test_mark_shared():
-    num_gpus = torch.cuda.device_count()
+    num_gpus = paddle.device.cuda.device_count()
     assert num_gpus > 1
+    rank = dist.get_rank()
     world_size = num_gpus
 
-    torch.multiprocessing.set_start_method("spawn", force=True)
+    # paddle.multiprocessing.set_start_method("spawn", force=True)
 
-    torch.multiprocessing.spawn(
+    dist.spawn(
         run_test_mark_shared,
-        args=(world_size,),
+        args=(
+            rank,
+            world_size,
+        ),
         nprocs=world_size,
         join=True,
         daemon=True,

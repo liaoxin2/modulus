@@ -157,7 +157,7 @@ def test_HEALPixLayer_forward(device, multiplier):
 
     # test nhwc mode and dilation
     layer = HEALPixLayer(
-        layer=torch.nn.Conv2d,
+        layer=torch.nn.Conv2D,
         in_channels=4,
         out_channels=8,
         kernel_size=3,
@@ -168,7 +168,7 @@ def test_HEALPixLayer_forward(device, multiplier):
     outvar = layer(invar)
 
     layer = HEALPixLayer(
-        layer=torch.nn.Conv2d,
+        layer=torch.nn.Conv2D,
         in_channels=4,
         out_channels=8,
         kernel_size=3,

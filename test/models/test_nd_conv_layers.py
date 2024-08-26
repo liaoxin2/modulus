@@ -236,14 +236,14 @@ def test_conv_nd(device, dimension):
         )
     elif dimension == 2:
         invar = torch.randn(bsize, in_channels, tens_size, tens_size).to(device)
-        comp_nn = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=True).to(
+        comp_nn = nn.Conv2D(in_channels, out_channels, kernel_size=1, bias=True).to(
             device
         )
     elif dimension == 3:
         invar = torch.randn(bsize, in_channels, tens_size, tens_size, tens_size).to(
             device
         )
-        comp_nn = nn.Conv3d(in_channels, out_channels, kernel_size=1, bias=True).to(
+        comp_nn = nn.Conv3D(in_channels, out_channels, kernel_size=1, bias=True).to(
             device
         )
 

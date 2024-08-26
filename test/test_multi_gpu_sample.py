@@ -14,19 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import paddle
 import pytest
-import torch
 
 
 @pytest.mark.multigpu
 def test_multi_gpu():
-    num_gpus = torch.cuda.device_count()
+    num_gpus = paddle.device.cuda.device_count()
     assert num_gpus > 1, "Not enough GPUs available for test"
 
     for i in range(num_gpus):
-        with torch.cuda.device(i):
-            tensor = torch.tensor([1.0, 2.0, 3.0], device=f"cuda:{i}")
-            assert tensor.sum() == 6.0
+        tensor = paddle.to_tensor([1.0, 2.0, 3.0]).to(device=f"gpu:{i}")
+        assert tensor.sum().item() == 6.0
 
 
 if __name__ == "__main__":

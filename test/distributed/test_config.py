@@ -16,8 +16,9 @@
 
 import os
 
+import paddle
 import pytest
-import torch
+from paddle import distributed as dist
 
 from modulus.distributed import DistributedManager, ProcessGroupConfig, ProcessGroupNode
 from modulus.distributed.mappings import reduce_from_parallel_region
@@ -57,11 +58,14 @@ def test_config():
     assert config.get_node("world").size == 24, "Incorrect size for 'world' parent node"
 
 
-class MockDistributedModel(torch.nn.Module):
+class MockDistributedModel(paddle.nn.Layer):
     def __init__(self):
         super().__init__()
         self.manager = DistributedManager()
-        self.alpha = torch.nn.Parameter(data=torch.tensor(0.5), requires_grad=True)
+        self.alpha = self.create_parameter(
+            shape=[],
+            default_initializer=paddle.nn.initializer.Assign(paddle.tensor(0.5)),
+        )
         self.group = "model_parallel"
 
     def forward(self, x):
@@ -102,6 +106,7 @@ def run_distributed_model_config(rank, model_parallel_size, verbose):
     assert config.get_node("world").size == 2, "Incorrect size for 'world' parent node"
 
     # Create model parallel process group
+    manager = DistributedManager()
     DistributedManager.create_groups_from_config(config, verbose=verbose)
 
     manager = DistributedManager()
@@ -112,7 +117,7 @@ def run_distributed_model_config(rank, model_parallel_size, verbose):
 
     # Now actually instantiate the model
     model = MockDistributedModel().to(manager.device)
-    x = torch.randn(1, device=manager.device)
+    x = paddle.randn([1]).to(device=manager.device)
     y = model(x)
     loss = y.sum()
     loss.backward()
@@ -122,13 +127,13 @@ def run_distributed_model_config(rank, model_parallel_size, verbose):
             f"{manager.group_rank('model_parallel')}: {[p.grad for p in model.parameters()]}, x: {x}, y: {y}"
         )
     # Test that the output of the model is correct
-    y_true = 0.5 * torch.clone(x)
-    torch.distributed.all_reduce(y_true)
-    assert torch.allclose(y, y_true, rtol=1e-05, atol=1e-08)
+    y_true = 0.5 * paddle.clone(x)
+    paddle.distributed.all_reduce(y_true)
+    assert paddle.allclose(y, y_true, rtol=1e-05, atol=1e-08)
 
     # Check that the backward pass produces the right result
     for p in model.parameters():
-        assert torch.allclose(p.grad, x, rtol=1e-05, atol=1e-08)
+        assert paddle.allclose(p.grad, x, rtol=1e-05, atol=1e-08)
 
     # Cleanup process groups
     DistributedManager.cleanup()
@@ -136,16 +141,15 @@ def run_distributed_model_config(rank, model_parallel_size, verbose):
 
 @pytest.mark.multigpu
 def test_distributed_model_config():
-    num_gpus = torch.cuda.device_count()
+    num_gpus = paddle.device.cuda.device_count()
     assert num_gpus >= 2, "Not enough GPUs available for test"
+    rank = dist.get_rank()
     model_parallel_size = 2
-    verbose = False  # Change to True for debug
+    verbose = True  # Change to True for debug
 
-    torch.multiprocessing.set_start_method("spawn", force=True)
-
-    torch.multiprocessing.spawn(
+    dist.spawn(
         run_distributed_model_config,
-        args=(model_parallel_size, verbose),
+        args=(rank, model_parallel_size, verbose),
         nprocs=model_parallel_size,
         join=True,
         daemon=True,
