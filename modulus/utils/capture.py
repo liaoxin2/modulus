@@ -296,7 +296,7 @@ class _StaticCapture(object):
         return scaler_states
 
     @classmethod
-    def load_state_dict(cls, state_dict: Dict[str, Any]) -> None:
+    def set_state_dict(cls, state_dict: Dict[str, Any]) -> None:
         """Class method for loading a StaticCapture state dictionary.
         Use this in a training checkpoint function.
 
@@ -309,7 +309,7 @@ class _StaticCapture(object):
             # If scaler has been created already load the weights
             if key in cls._amp_scalers:
                 try:
-                    cls._amp_scalers[key].load_state_dict(value)
+                    cls._amp_scalers[key].set_state_dict(value)
                     cls._logger.info(f"Loaded grad scaler state dictionary {key}.")
                 except Exception as e:
                     cls._logger.error(

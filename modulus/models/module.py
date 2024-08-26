@@ -282,7 +282,7 @@ class Module(paddle.nn.Layer):
         ----------
         file_name : str
             Checkpoint file name
-        map_location : Union[None, str, paddle.place], optional
+        map_location : Union[None, str, paddle.device], optional
             Map location for loading the model weights, by default None will use model's device
         strict: bool, optional
             whether to strictly enforce that the keys in state_dict match, by default True
@@ -310,7 +310,7 @@ class Module(paddle.nn.Layer):
             Module._check_checkpoint(local_path)
 
             # Load the model weights
-            # device = map_location if map_location is not None else self.place
+            # device = map_location if map_location is not None else self.device
             model_dict = paddle.load(local_path.joinpath("model.pt"))
             self.set_state_dict(model_dict, strict=strict)
 
@@ -364,12 +364,12 @@ class Module(paddle.nn.Layer):
     def from_torch(
         torch_model_class: paddle.nn.Layer, meta: ModelMetaData = None
     ) -> "Module":
-        """Construct a Modulus module from a PyTorch module
+        """Construct a Modulus module from a Paddle module
 
         Parameters
         ----------
         torch_model_class : paddle.nn.Layer
-            PyTorch module class
+            Paddle module class
         meta : ModelMetaData, optional
             Meta data for the model, by default None
 
@@ -387,7 +387,7 @@ class Module(paddle.nn.Layer):
             def forward(self, x):
                 return self.inner_model(x)
 
-        # Get the argument names and default values of the PyTorch model's init method
+        # Get the argument names and default values of the Paddle model's init method
         init_argspec = inspect.getfullargspec(torch_model_class.__init__)
         model_argnames = init_argspec.args[1:]  # Exclude 'self'
         model_defaults = init_argspec.defaults or []
@@ -426,8 +426,8 @@ class Module(paddle.nn.Layer):
 
         Returns
         -------
-        paddle.place
-            PyTorch device
+        paddle.CUDAPlace
+            Paddle device
         """
         return self.device_buffer.place
 

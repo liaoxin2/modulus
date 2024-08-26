@@ -24,7 +24,7 @@ import torch.nn as nn
 from torch.autograd.function import once_differentiable
 
 
-class CellAreaWeightedLossFunction(nn.Module):
+class CellAreaWeightedLossFunction(nn.Layer):
     """Loss function with cell area weighting.
 
     Parameters
@@ -115,7 +115,7 @@ class CustomCellAreaWeightedLossFunction(CellAreaWeightedLossFunction):
         )
 
 
-class GraphCastLossFunction(nn.Module):
+class GraphCastLossFunction(nn.Layer):
     """Loss function as specified in GraphCast.
     Parameters
     ----------

@@ -41,7 +41,7 @@ class LatentDataset(DGLDataset):
         Dataset split ["train", "eval", "test"], by default "train"
     produce_latents : bool, optional
         Specifying whether to use the trained Encoder to compress the graph into latent space and save the restuls, by default True
-    Encoder: torch.nn.Module, optioanl
+    Encoder: torch.nn.Layer, optioanl
         The trained model used for encoding, by default None
     position_mesh: torch.Tensor, optioanl
         The postions for all meshes, by default None

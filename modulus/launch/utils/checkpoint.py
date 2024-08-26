@@ -19,17 +19,17 @@ import re
 from pathlib import Path
 from typing import Dict, List, NewType, Union
 
-import torch
-from torch.cuda.amp import GradScaler
-from torch.optim.lr_scheduler import _LRScheduler
+import paddle
+from paddle.amp import GradScaler
+from paddle.optimizer.lr import LRScheduler
 
 import modulus
 from modulus.distributed import DistributedManager
 from modulus.launch.logging import PythonLogger
 from modulus.utils.capture import _StaticCapture
 
-optimizer = NewType("optimizer", torch.optim)
-scheduler = NewType("scheduler", _LRScheduler)
+optimizer = NewType("optimizer", paddle.optimizer.Optimizer)
+scheduler = NewType("scheduler", LRScheduler)
 scaler = NewType("scaler", GradScaler)
 
 checkpoint_logging = PythonLogger("checkpoint")
@@ -62,7 +62,7 @@ def _get_checkpoint_filename(
     saving : bool, optional
         Get filename for saving a new checkpoint, by default False
     model_type : str
-        Model type, by default "mdlus" for Modulus models and "pt" for PyTorch models
+        Model type, by default "mdlus" for Modulus models and "pt" for PaddlePaddle models
 
 
     Returns
@@ -91,7 +91,7 @@ def _get_checkpoint_filename(
         Path(path).resolve() / f"{base_name}.{model_parallel_rank}"
     )
 
-    # File extension for Modulus models or PyTorch models
+    # File extension for Modulus models or PaddlePaddle models
     file_extension = ".mdlus" if model_type == "mdlus" else ".pt"
 
     # If epoch is provided load that file
@@ -135,19 +135,19 @@ def _get_checkpoint_filename(
 
 
 def _unique_model_names(
-    models: List[torch.nn.Module],
-) -> Dict[str, torch.nn.Module]:
+    models: List[paddle.nn.Layer],
+) -> Dict[str, paddle.nn.Layer]:
     """Util to clean model names and index if repeat names, will also strip DDP wrappers
     if they exist.
 
     Parameters
     ----------
-    model :  List[torch.nn.Module]
+    model :  List[paddle.nn.Layer]
         List of models to generate names for
 
     Returns
     -------
-    Dict[str, torch.nn.Module]
+    Dict[str, paddle.nn.Layer]
         Dictionary of model names and respective modules
     """
     # Loop through provided models and set up base names
@@ -180,7 +180,7 @@ def _unique_model_names(
 
 def save_checkpoint(
     path: str,
-    models: Union[torch.nn.Module, List[torch.nn.Module], None] = None,
+    models: Union[paddle.nn.Layer, List[paddle.nn.Layer], None] = None,
     optimizer: Union[optimizer, None] = None,
     scheduler: Union[scheduler, None] = None,
     scaler: Union[scaler, None] = None,
@@ -196,8 +196,8 @@ def save_checkpoint(
     ----------
     path : str
         Path to save the training checkpoint
-    models : Union[torch.nn.Module, List[torch.nn.Module], None], optional
-        A single or list of PyTorch models, by default None
+    models : Union[paddle.nn.Layer, List[paddle.nn.Layer], None], optional
+        A single or list of PaddlePaddle models, by default None
     optimizer : Union[optimizer, None], optional
         Optimizer, by default None
     scheduler : Union[scheduler, None], optional
@@ -234,7 +234,7 @@ def save_checkpoint(
             if isinstance(model, modulus.models.Module):
                 model.save(file_name)
             else:
-                torch.save(model.state_dict(), file_name)
+                paddle.save(model.state_dict(), file_name)
             checkpoint_logging.success(f"Saved model state dictionary: {file_name}")
 
     # == Saving training checkpoint ==
@@ -263,7 +263,7 @@ def save_checkpoint(
 
     # Save checkpoint to memory
     if bool(checkpoint_dict):
-        torch.save(
+        paddle.save(
             checkpoint_dict,
             output_filename,
         )
@@ -272,12 +272,12 @@ def save_checkpoint(
 
 def load_checkpoint(
     path: str,
-    models: Union[torch.nn.Module, List[torch.nn.Module], None] = None,
+    models: Union[paddle.nn.Layer, List[paddle.nn.Layer], None] = None,
     optimizer: Union[optimizer, None] = None,
     scheduler: Union[scheduler, None] = None,
     scaler: Union[scaler, None] = None,
     epoch: Union[int, None] = None,
-    device: Union[str, torch.device] = "cpu",
+    device: str = "cpu",
 ) -> int:
     """Checkpoint loading utility
 
@@ -289,8 +289,8 @@ def load_checkpoint(
     ----------
     path : str
         Path to training checkpoint
-    models : Union[torch.nn.Module, List[torch.nn.Module], None], optional
-        A single or list of PyTorch models, by default None
+    models : Union[paddle.nn.Layer, List[paddle.nn.Layer], None], optional
+        A single or list of PaddlePaddle models, by default None
     optimizer : Union[optimizer, None], optional
         Optimizer, by default None
     scheduler : Union[scheduler, None], optional
@@ -300,7 +300,7 @@ def load_checkpoint(
     epoch : Union[int, None], optional
         Epoch checkpoint to load. If none is provided this will attempt to load the
         checkpoint with the largest index, by default None
-    device : Union[str, torch.device], optional
+    device : str, optional
         Target device, by default "cpu"
 
     Returns
@@ -337,7 +337,7 @@ def load_checkpoint(
             if isinstance(model, modulus.models.Module):
                 model.load(file_name)
             else:
-                model.load_state_dict(torch.load(file_name, map_location=device))
+                model.set_state_dict(paddle.load(file_name, map_location=device))
 
             checkpoint_logging.success(
                 f"Loaded model state dictionary {file_name} to device {device}"
@@ -351,28 +351,28 @@ def load_checkpoint(
         )
         return 0
 
-    checkpoint_dict = torch.load(checkpoint_filename, map_location=device)
+    checkpoint_dict = paddle.load(checkpoint_filename, map_location=device)
     checkpoint_logging.success(
         f"Loaded checkpoint file {checkpoint_filename} to device {device}"
     )
 
     # Optimizer state dict
     if optimizer and "optimizer_state_dict" in checkpoint_dict:
-        optimizer.load_state_dict(checkpoint_dict["optimizer_state_dict"])
+        optimizer.set_state_dict(checkpoint_dict["optimizer_state_dict"])
         checkpoint_logging.success("Loaded optimizer state dictionary")
 
     # Scheduler state dict
     if scheduler and "scheduler_state_dict" in checkpoint_dict:
-        scheduler.load_state_dict(checkpoint_dict["scheduler_state_dict"])
+        scheduler.set_state_dict(checkpoint_dict["scheduler_state_dict"])
         checkpoint_logging.success("Loaded scheduler state dictionary")
 
     # Scaler state dict
     if scaler and "scaler_state_dict" in checkpoint_dict:
-        scaler.load_state_dict(checkpoint_dict["scaler_state_dict"])
+        scaler.set_state_dict(checkpoint_dict["scaler_state_dict"])
         checkpoint_logging.success("Loaded grad scaler state dictionary")
 
     if "static_capture_state_dict" in checkpoint_dict:
-        _StaticCapture.load_state_dict(checkpoint_dict["static_capture_state_dict"])
+        _StaticCapture.set_state_dict(checkpoint_dict["static_capture_state_dict"])
         checkpoint_logging.success("Loaded static capture state dictionary")
 
     epoch = 0

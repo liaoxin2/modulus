@@ -19,7 +19,7 @@ import paddle
 from paddle.nn import functional as F
 
 
-class MSE_SSIM(paddle.nn.Module):
+class MSE_SSIM(paddle.nn.Layer):
     """
     This class provides a compound loss formulation combining differential structural similarity (SSIM) and mean squared
     error (MSE). Calling this class will compute the loss using SSIM for fields indicated by model attributes
@@ -64,7 +64,7 @@ class MSE_SSIM(paddle.nn.Module):
         self.ssim_variables = ssim_variables
 
     def forward(
-        self, prediction: paddle.tensor, targets: paddle.tensor, model: paddle.nn.Module
+        self, prediction: paddle.tensor, targets: paddle.tensor, model: paddle.nn.Layer
     ):  # TODO(David): Pass only the necessary params instead of the entire model
         """
         Forward pass of the MSE_SSIM loss
@@ -73,7 +73,7 @@ class MSE_SSIM(paddle.nn.Module):
             Predicted image of shape [B, T, C, F, H, W]
         param targets: paddle.Tensor
             Ground truth image of shape [B, T, C, F, H, W]
-        param model: paddle.nn.Module
+        param model: paddle.nn.Layer
             model over which loss is being computed
 
         Returns
@@ -132,7 +132,7 @@ class MSE_SSIM(paddle.nn.Module):
         return loss
 
 
-class SSIM(paddle.nn.Module):
+class SSIM(paddle.nn.Layer):
     """
     This class provides a differential structural similarity (SSIM) as loss for training an artificial neural network. The
     advantage of SSIM over the conventional mean squared error is a relation to images where SSIM incorporates the local
@@ -161,7 +161,7 @@ class SSIM(paddle.nn.Module):
             Boolean indicating whether time series forecasting is the task
         param padding_mode: str
             Padding mode used for padding input images, e.g. 'zeros', 'replicate', 'reflection'
-        param mse: paddle.nn.Module
+        param mse: paddle.nn.Layer
             Uses MSE parallel
         param mse_epochs: int, optional
             Number of MSE epochs preceding the SSIM epochs during training

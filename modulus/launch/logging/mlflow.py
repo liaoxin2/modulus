@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Literal, Tuple
 
-import torch
+import paddle
 
 try:
     import mlflow  # noqa: F401 for docs
@@ -155,8 +155,10 @@ def initialize_mlflow(
     time_string = start_time.strftime("%m/%d/%y %H:%M:%S")
     client.set_tag(run.info.run_id, "date", time_string)
     client.set_tag(run.info.run_id, "host", os.uname()[1])
-    if torch.cuda.is_available():
-        client.set_tag(run.info.run_id, "gpu", torch.cuda.get_device_name(dist.device))
+    if paddle.device.cuda.device_count() > 0:
+        client.set_tag(
+            run.info.run_id, "gpu", paddle.device.cuda.get_device_name(dist.device)
+        )
     client.set_tag(run.info.run_id, "group", group_name)
 
     run = client.get_run(run.info.run_id)

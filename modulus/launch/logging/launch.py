@@ -21,8 +21,8 @@ from os import getcwd, makedirs
 from os.path import abspath, exists, join
 from typing import Dict, Tuple, Union
 
-import torch
-import torch.cuda.profiler as profiler
+import paddle
+import paddle.profiler as profiler
 import wandb
 
 from modulus.distributed import DistributedManager, reduce_loss
@@ -94,12 +94,10 @@ class LaunchLogger(object):
         if DistributedManager.is_initialized():
             self.root = DistributedManager().rank == 0
         # Profiler utils
-        if torch.cuda.is_available():
-            self.profiler = torch.autograd.profiler.emit_nvtx(
-                enabled=cls.enable_profiling
-            )
-            self.start_event = torch.cuda.Event(enable_timing=True)
-            self.end_event = torch.cuda.Event(enable_timing=True)
+        if paddle.device.cuda.device_count() > 0:
+            self.profiler = profiler.Profiler()
+            self.start_event = paddle.device.cuda.Event(enable_timing=True)
+            self.end_event = paddle.device.cuda.Event(enable_timing=True)
         else:
             self.profiler = None
 
@@ -201,7 +199,7 @@ class LaunchLogger(object):
             profiler.start()
 
         # Timing stuff
-        if torch.cuda.is_available():
+        if paddle.device.cuda.is_available():
             self.start_event.record()
         else:
             self.start_event = time.time()
@@ -248,11 +246,11 @@ class LaunchLogger(object):
             profiler.end()
 
         # Timing stuff, TODO: histograms not line plots
-        if torch.cuda.is_available():
+        if paddle.device.cuda.is_available():
             self.end_event.record()
-            torch.cuda.synchronize()
+            paddle.device.synchronize()
             # Returns milliseconds
-            # https://pytorch.org/docs/stable/generated/torch.cuda.Event.html#torch.cuda.Event.elapsed_time
+            # https://pypaddle.org/docs/stable/generated/paddle.device.cuda.Event.html#paddle.device.cuda.Event.elapsed_time
             epoch_time = self.start_event.elapsed_time(self.end_event) / 1000.0
         else:
             end_event = time.time()

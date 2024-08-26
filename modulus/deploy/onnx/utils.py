@@ -47,7 +47,7 @@ def check_ort_install(func):
 
 
 def export_to_onnx_stream(
-    model: nn.Module,
+    model: nn.Layer,
     invars: Union[Tensor, Tuple[Tensor, ...]],
     verbose: bool = False,
 ) -> bytes:
@@ -55,7 +55,7 @@ def export_to_onnx_stream(
 
     Parameters
     ----------
-    model : nn.Module
+    model : nn.Layer
         PyTorch model to export
     invars : Union[Tensor, Tuple[Tensor,...]]
         Input tensor(s)

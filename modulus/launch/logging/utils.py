@@ -16,7 +16,7 @@
 
 from datetime import datetime
 
-import torch
+import paddle
 
 from modulus.distributed import DistributedManager
 
@@ -43,15 +43,15 @@ def create_ddp_group_tag(group_name: str = None) -> str:
         def tint(x):
             return int(datetime.now().strftime(f"%{x}"))
 
-        time_index = torch.IntTensor(
+        time_index = paddle.to_tensor(
             [tint(x) for x in ["m", "d", "y", "H", "M", "S"]]
         ).to(dist.device)
     else:
-        time_index = torch.IntTensor([0, 0, 0, 0, 0, 0]).to(dist.device)
+        time_index = paddle.to_tensor([0, 0, 0, 0, 0, 0]).to(dist.device)
 
-    if torch.distributed.is_available():
+    if paddle.distributed.is_available():
         # Broadcast group ID to all processes
-        torch.distributed.broadcast(time_index, src=0)
+        paddle.distributed.broadcast(time_index, src=0)
 
     time_string = f"{time_index[0]}/{time_index[1]}/{time_index[2]}_\
         {time_index[3]}-{time_index[4]}-{time_index[5]}"

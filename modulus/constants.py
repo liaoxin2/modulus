@@ -19,7 +19,7 @@ constant values used by Modulus
 """
 
 import numpy as np
-import torch
+import paddle
 
 # string used to determine derivatives
 diff_str: str = "__"
@@ -31,15 +31,15 @@ def diff(y: str, x: str, degree: int = 1) -> str:
 
 
 # for changing to float16 or float64
-tf_dt = torch.float32
+tf_dt = paddle.float32
 np_dt = np.float32
 
 # tensorboard naming
 TF_SUMMARY = False
 
-# Pytorch Version for which JIT will be default on
+# PaddlePaddle Version for which CINN will be default on
 # Torch version of NGC container 22.08
-JIT_PYTORCH_VERSION = "1.13.0a0+d321be6"
+JIT_PYTORCH_VERSION = "3.0.0"
 
 # No scaling is needed if using NO_OP_SCALE
 NO_OP_SCALE = (0.0, 1.0)

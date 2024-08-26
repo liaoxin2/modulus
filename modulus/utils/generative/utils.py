@@ -599,20 +599,20 @@ class InfiniteSampler(torch.utils.data.Sampler):  # pragma: no cover
 
 
 # ----------------------------------------------------------------------------
-# Utilities for operating with torch.nn.Module parameters and buffers.
+# Utilities for operating with torch.nn.Layer parameters and buffers.
 
 
 def params_and_buffers(module):  # pragma: no cover
-    """Get parameters and buffers of a nn.Module"""
-    if not isinstance(module, torch.nn.Module):
-        raise TypeError("module must be a torch.nn.Module instance")
+    """Get parameters and buffers of a nn.Layer"""
+    if not isinstance(module, torch.nn.Layer):
+        raise TypeError("module must be a torch.nn.Layer instance")
     return list(module.parameters()) + list(module.buffers())
 
 
 def named_params_and_buffers(module):  # pragma: no cover
-    """Get named parameters and buffers of a nn.Module"""
-    if not isinstance(module, torch.nn.Module):
-        raise TypeError("module must be a torch.nn.Module instance")
+    """Get named parameters and buffers of a nn.Layer"""
+    if not isinstance(module, torch.nn.Layer):
+        raise TypeError("module must be a torch.nn.Layer instance")
     return list(module.named_parameters()) + list(module.named_buffers())
 
 
@@ -621,10 +621,10 @@ def copy_params_and_buffers(
     src_module, dst_module, require_all=False
 ):  # pragma: no cover
     """Copy parameters and buffers from a source module to target module"""
-    if not isinstance(src_module, torch.nn.Module):
-        raise TypeError("src_module must be a torch.nn.Module instance")
-    if not isinstance(dst_module, torch.nn.Module):
-        raise TypeError("dst_module must be a torch.nn.Module instance")
+    if not isinstance(src_module, torch.nn.Layer):
+        raise TypeError("src_module must be a torch.nn.Layer instance")
+    if not isinstance(dst_module, torch.nn.Layer):
+        raise TypeError("dst_module must be a torch.nn.Layer instance")
     src_tensors = dict(named_params_and_buffers(src_module))
     for name, tensor in named_params_and_buffers(dst_module):
         if not ((name in src_tensors) or (not require_all)):
@@ -644,8 +644,8 @@ def ddp_sync(module, sync):  # pragma: no cover
     Context manager for easily enabling/disabling DistributedDataParallel
     synchronization.
     """
-    if not isinstance(module, torch.nn.Module):
-        raise TypeError("module must be a torch.nn.Module instance")
+    if not isinstance(module, torch.nn.Layer):
+        raise TypeError("module must be a torch.nn.Layer instance")
     if sync or not isinstance(module, torch.nn.parallel.DistributedDataParallel):
         yield
     else:
@@ -659,8 +659,8 @@ def ddp_sync(module, sync):  # pragma: no cover
 
 def check_ddp_consistency(module, ignore_regex=None):  # pragma: no cover
     """Check DistributedDataParallel consistency across processes."""
-    if not isinstance(module, torch.nn.Module):
-        raise TypeError("module must be a torch.nn.Module instance")
+    if not isinstance(module, torch.nn.Layer):
+        raise TypeError("module must be a torch.nn.Layer instance")
     for name, tensor in named_params_and_buffers(module):
         fullname = type(module).__name__ + "." + name
         if ignore_regex is not None and re.fullmatch(ignore_regex, fullname):
@@ -682,8 +682,8 @@ def print_module_summary(
     module, inputs, max_nesting=3, skip_redundant=True
 ):  # pragma: no cover
     """Print summary table of module hierarchy."""
-    if not isinstance(module, torch.nn.Module):
-        raise TypeError("module must be a torch.nn.Module instance")
+    if not isinstance(module, torch.nn.Layer):
+        raise TypeError("module must be a torch.nn.Layer instance")
     if isinstance(module, torch.jit.ScriptModule):
         raise TypeError("module must not be a torch.jit.ScriptModule instance")
     if not isinstance(inputs, (tuple, list)):
