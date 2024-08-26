@@ -15,12 +15,14 @@
 # limitations under the License.
 
 # TODO this also needs more docstrings
+from __future__ import annotations
+
 from typing import List, Optional
 
-import torch
-import torch.distributed as dist
-import torch.nn as nn
-import torch.nn.functional as F
+import paddle
+import paddle.distributed as dist
+import paddle.nn as nn
+import paddle.nn.functional as F
 
 from .manager import DistributedManager
 
@@ -44,12 +46,12 @@ def compute_split_shapes(size: int, num_chunks: int) -> List[int]:
     return sections
 
 
-def get_memory_format(tensor):
-    """Gets format for tensor"""
-    if tensor.is_contiguous(memory_format=torch.channels_last):
-        return torch.channels_last
-    else:
-        return torch.contiguous_format
+# def get_memory_format(tensor):
+#     """Gets format for tensor"""
+#     if tensor.is_contiguous():
+#         return paddle.channels_last
+#     else:
+#         return paddle.contiguous_format
 
 
 def pad_helper(tensor, dim, new_size, mode="zero"):
@@ -71,8 +73,8 @@ def pad_helper(tensor, dim, new_size, mode="zero"):
             slice(0, x) if idx != dim else slice(1, output_shape[1] + 1)
             for idx, x in enumerate(tensor.shape)
         ]
-        tensor_pad[lhs_slice] = torch.flip(
-            torch.conj(tensor_pad[rhs_slice]), dims=[dim]
+        tensor_pad[lhs_slice] = paddle.flip(
+            paddle.conj(tensor_pad[rhs_slice]), axis=[dim]
         )
 
     return tensor_pad
@@ -80,14 +82,14 @@ def pad_helper(tensor, dim, new_size, mode="zero"):
 
 def truncate_helper(tensor, dim, new_size):
     """Util for truncating"""
-    input_format = get_memory_format(tensor)
+    # input_format = get_memory_format(tensor)
     ndim = tensor.ndim
     dim = (dim + ndim) % ndim
     output_slice = [
         slice(0, x) if idx != dim else slice(0, new_size)
         for idx, x in enumerate(tensor.shape)
     ]
-    tensor_trunc = tensor[output_slice].contiguous(memory_format=input_format)
+    tensor_trunc = tensor[output_slice].contiguous()
 
     return tensor_trunc
 
@@ -105,12 +107,12 @@ def split_tensor_along_dim(tensor, dim, num_chunks):
 
     # get split
     sections = compute_split_shapes(tensor.shape[dim], num_chunks)
-    tensor_list = torch.split(tensor, sections, dim=dim)
+    tensor_list = paddle.split(tensor, sections, axis=dim)
 
     return tensor_list
 
 
-@torch.no_grad()
+@paddle.no_grad()
 def reduce_loss(loss: float, dst_rank: int = 0, mean: bool = True):  # pragma: no cover
     """Reduces loss from all processes to destination rank for logging.
 
@@ -134,14 +136,16 @@ def reduce_loss(loss: float, dst_rank: int = 0, mean: bool = True):  # pragma: n
         )
 
     distmng = DistributedManager()
-    loss = torch.Tensor([loss]).to(distmng.device)
+    loss = paddle.to_tensor([loss]).to(distmng.device)
 
     # For serial runs, just return the current loss!
     if distmng.world_size == 1:
         return float(loss)
 
-    op = torch.distributed.ReduceOp.SUM if not mean else torch.distributed.ReduceOp.AVG
-    torch.distributed.reduce(loss, dst_rank, op, group=None)
+    op = (
+        paddle.distributed.ReduceOp.SUM if not mean else paddle.distributed.ReduceOp.AVG
+    )
+    paddle.distributed.reduce(loss, dst_rank, op, group=None)
 
     # Return loss if dst_rank, None otherwise
     if distmng.rank == dst_rank:
@@ -154,21 +158,17 @@ def reduce_loss(loss: float, dst_rank: int = 0, mean: bool = True):  # pragma: n
 def distributed_transpose(tensor, dim0, dim1, group=None, async_op=False):
     """Perform distributed transpose of tensor to switch sharding dimension"""
     # get input format
-    input_format = get_memory_format(tensor)
+    # input_format = get_memory_format(tensor)
 
     # get comm params
     comm_size = dist.get_world_size(group=group)
 
     # split and local transposition
-    split_size = tensor.shape[dim0] // comm_size
-    x_send = [
-        y.contiguous(memory_format=input_format)
-        for y in torch.split(tensor, split_size, dim=dim0)
-    ]
-    x_recv = [torch.empty_like(x_send[0]) for _ in range(comm_size)]
+    x_send = [y.contiguous() for y in paddle.split(tensor, comm_size, axis=dim0)]
+    x_recv = [paddle.empty_like(x_send[0]) for _ in range(comm_size)]
 
     # global transposition
-    req = dist.all_to_all(x_recv, x_send, group=group, async_op=async_op)
+    req = dist.alltoall(x_recv, x_send, group=group, sync_op=not async_op)
 
     return x_recv, req
 
@@ -182,11 +182,11 @@ def _reduce(input_, use_fp32=True, group=None):  # pragma: no cover
 
     # All-reduce, use_fp32 only relevant for lower precisions
     # if input is already in double precision, nothing changes
-    if use_fp32 and (input_.dtype.itemsize < 4) and input_.dtype.is_floating_point:
+    if use_fp32 and (input_.element_size() < 4) and input_.is_floating_point():
         dtype = input_.dtype
         inputf_ = input_.float()
         dist.all_reduce(inputf_, group=group)
-        input_ = inputf_.to(dtype)
+        input_ = inputf_.astype(dtype)
     else:
         dist.all_reduce(input_, group=group)
 
@@ -196,7 +196,7 @@ def _reduce(input_, use_fp32=True, group=None):  # pragma: no cover
 def _split(input_, dim_, group=None):  # pragma: no cover
     """Split the tensor along its last dimension and keep the corresponding slice."""
     # get input format
-    input_format = get_memory_format(input_)
+    # input_format = get_memory_format(input_)
 
     # Bypass the function if we are using only 1 GPU.
     comm_size = dist.get_world_size(group=group)
@@ -206,19 +206,19 @@ def _split(input_, dim_, group=None):  # pragma: no cover
     # Split along last dimension.
     input_list = split_tensor_along_dim(input_, dim_, comm_size)
 
-    # Note: torch.split does not create contiguous tensors by default.
+    # Note: paddle.split does not create contiguous tensors by default.
     rank = dist.get_rank(group=group)
-    output = input_list[rank].contiguous(memory_format=input_format)
+    output = input_list[rank].contiguous()
 
     return output
 
 
 def all_gather_v_wrapper(
-    tensor: torch.Tensor,
+    tensor: paddle.Tensor,
     sizes: Optional[List[int]] = None,
     dim: int = 0,
     group: Optional[dist.ProcessGroup] = None,
-) -> torch.Tensor:  # pragma: no cover
+) -> paddle.Tensor:  # pragma: no cover
     """
     Implements a distributed AllGatherV primitive. It is based
     on the idea of a single global tensor which is distributed along
@@ -228,7 +228,7 @@ def all_gather_v_wrapper(
 
     Parameters
     ----------
-    tensor : "torch.Tensor"
+    tensor : "paddle.Tensor"
         local tensor on each rank
     sizes : List[int], optional
         list of the sizes of each chunk on each rank along distributed dimension,
@@ -240,7 +240,7 @@ def all_gather_v_wrapper(
 
     Returns
     -------
-    torch.Tensor
+    paddle.Tensor
         full global tensor, valid on each rank
     """
 
@@ -255,36 +255,35 @@ def all_gather_v_wrapper(
         return tensor
 
     tensor_shape = list(tensor.shape)
-    tensor_format = get_memory_format(tensor)
+    # tensor_format = get_memory_format(tensor)
 
     if sizes is not None:
         tensor_list = [None] * comm_size
 
         for src in range(comm_size):
             tensor_shape[dim] = sizes[src]
-            tensor_list[src] = torch.empty(
+            tensor_list[src] = paddle.empty(
                 tensor_shape,
                 dtype=tensor.dtype,
-                device=tensor.device,
             )
     else:
         # assume equal shape on all ranks
-        tensor_list = [torch.empty_like(tensor) for _ in range(comm_size)]
+        tensor_list = [paddle.empty_like(tensor) for _ in range(comm_size)]
 
     dist.all_gather(tensor_list, tensor, group=group)
 
-    output = torch.cat(tensor_list, dim=dim).contiguous(memory_format=tensor_format)
+    output = paddle.concat(tensor_list, axis=dim).contiguous()
 
     return output
 
 
 def all_gather_v_bwd_wrapper(
-    tensor: torch.Tensor,
+    tensor: paddle.Tensor,
     sizes: List[int],
     dim: int = 0,
     use_fp32: bool = True,
     group: Optional[dist.ProcessGroup] = None,
-) -> torch.Tensor:  # pragma: no cover
+) -> paddle.Tensor:  # pragma: no cover
     """
     Implements a distributed AllReduceV primitive. It is based
     on the idea of a single global tensor which which can be distributed
@@ -298,7 +297,7 @@ def all_gather_v_bwd_wrapper(
 
     Parameters
     ----------
-    tensor : torch.Tensor
+    tensor : paddle.Tensor
         global tensor on each rank (different one on each rank)
     sizes : List[int]
         list of the sizes of each chunk on each rank along distributed dimension,
@@ -313,7 +312,7 @@ def all_gather_v_bwd_wrapper(
 
     Returns
     -------
-    torch.Tensor
+    paddle.Tensor
         local tensor, i.e. result of reduction of all corresponding chunks
         from all global tensors for each rank separately
     """
@@ -329,38 +328,37 @@ def all_gather_v_bwd_wrapper(
     tensor_shape = list(tensor.shape)
     tensor_shape[dim] = sizes[rank]
     tmp = [
-        torch.empty(
+        paddle.empty(
             tensor_shape,
             dtype=tensor.dtype,
-            device=tensor.device,
         )
         for _ in range(comm_size)
     ]
-    scatter_list = list(torch.split(tensor, sizes, dim=dim))
+    scatter_list = list(paddle.split(tensor, sizes, axis=dim))
     scatter_list = [t.contiguous() for t in scatter_list]
 
-    dist.all_to_all(tmp, scatter_list, group=group)
+    dist.alltoall(tmp, scatter_list, group=group)
     stack_dim = tensor.dim()
-    tmp = torch.stack(tmp, dim=stack_dim)
+    tmp = paddle.stack(tmp, axis=stack_dim)
 
-    if use_fp32 and (tmp.dtype.itemsize < 4) and tmp.dtype.is_floating_point:
+    if use_fp32 and (tmp.element_size() < 4) and tmp.is_floating_point():
         # cast to float before sum and return float, then cast back
-        output = tmp.sum(dim=stack_dim, dtype=torch.float32)
+        output = tmp.sum(axis=stack_dim, dtype=paddle.float32)
         output = output.to(dtype=tensor.dtype)
     else:
         # else: just do sum in native dtype
-        output = tmp.sum(dim=stack_dim)
+        output = tmp.sum(axis=stack_dim)
 
     return output
 
 
 def gather_v_wrapper(
-    tensor: torch.Tensor,
+    tensor: paddle.Tensor,
     sizes: List[int],
     dim: int = 0,
     dst: int = 0,
     group: Optional[dist.ProcessGroup] = None,
-) -> torch.Tensor:  # pragma: no cover
+) -> paddle.Tensor:  # pragma: no cover
     """
     Implements a distributed GatherV primitive. It is based
     on the idea of a single global tensor which is distributed along
@@ -371,7 +369,7 @@ def gather_v_wrapper(
 
     Parameters
     ----------
-    tensor : torch.Tensor
+    tensor : paddle.Tensor
         local tensor on each rank
     sizes : List[int]
         list of the sizes of each chunk on each rank along distributed dimension,
@@ -386,7 +384,7 @@ def gather_v_wrapper(
 
     Returns
     -------
-    torch.Tensor
+    paddle.Tensor
         full global tensor, valid on destination rank
     """
 
@@ -414,23 +412,21 @@ def gather_v_wrapper(
         else:
             tensor_shape[dim] = 0
 
-        x_recv[r] = torch.empty(
+        x_recv[r] = paddle.empty(
             tensor_shape,
             dtype=tensor.dtype,
-            device=tensor.device,
         )
 
         if r == dst:
             x_send[r] = tensor
         else:
             tensor_shape[dim] = 0
-            x_send[r] = torch.empty(
+            x_send[r] = paddle.empty(
                 tensor_shape,
                 dtype=tensor.dtype,
-                device=tensor.device,
             )
 
-    dist.all_to_all(x_recv, x_send, group=group)
+    dist.alltoall(x_recv, x_send, group=group)
 
     # TODO: clean gather/scatter and some examples up
     # main question is around whether e.g. gather returns
@@ -439,24 +435,23 @@ def gather_v_wrapper(
     if rank != dst:
         for r in range(comm_size):
             tensor_shape[dim] = sizes[r]
-            x_recv[r] = torch.empty(
+            x_recv[r] = paddle.empty(
                 tensor_shape,
                 dtype=tensor.dtype,
-                device=tensor.device,
             )
 
-    output = torch.cat(x_recv, dim=dim)
+    output = paddle.concat(x_recv, axis=dim)
 
     return output
 
 
 def scatter_v_wrapper(
-    tensor: torch.Tensor,
+    tensor: paddle.Tensor,
     sizes: List[int],
     dim: int = 0,
     src: int = 0,
     group: Optional[dist.ProcessGroup] = None,
-) -> torch.Tensor:  # pragma: no cover
+) -> paddle.Tensor:  # pragma: no cover
     """
     Implements a distributed ScatterV primitive. It is based
     on the idea of a single global tensor which is distributed along
@@ -466,7 +461,7 @@ def scatter_v_wrapper(
 
     Parameters
     ----------
-    tensor : torch.Tensor
+    tensor : paddle.Tensor
         global tensor, valid on source rank
     sizes : List[int]
         list of the sizes of each chunk on each rank along distributed dimension,
@@ -480,7 +475,7 @@ def scatter_v_wrapper(
 
     Returns
     -------
-    torch.Tensor
+    paddle.Tensor
         corresponding local part of the global tensor on each rank
     """
     comm_size = dist.get_world_size(group=group)
@@ -493,40 +488,38 @@ def scatter_v_wrapper(
     if not (0 <= src < comm_size):
         raise ValueError()
 
-    # all_to_all is already all_to_all_v, use empty tensors to "mask"-out irrelevant parts
+    # alltoall is already alltoall_v, use empty tensors to "mask"-out irrelevant parts
     tensor_shape = list(tensor.shape)
     x_send = [None] * comm_size
     x_recv = [None] * comm_size
     if rank == src:
-        scatter_list = torch.split(tensor, sizes, dim=dim)
+        scatter_list = paddle.split(tensor, sizes, axis=dim)
         scatter_list = [t.contiguous() for t in scatter_list]
         x_send = scatter_list
     else:
         for r in range(comm_size):
             tensor_shape[dim] = 0
-            x_send[r] = torch.empty(
-                tensor_shape, device=tensor.device, dtype=tensor.dtype
-            )
+            x_send[r] = paddle.empty(tensor_shape, dtype=tensor.dtype)
 
     for r in range(comm_size):
         if r == src:
             tensor_shape[dim] = sizes[rank]
         else:
             tensor_shape[dim] = 0
-        x_recv[r] = torch.empty(tensor_shape, device=tensor.device, dtype=tensor.dtype)
+        x_recv[r] = paddle.empty(tensor_shape, dtype=tensor.dtype)
 
-    dist.all_to_all(x_recv, x_send, group=group)
+    dist.alltoall(x_recv, x_send, group=group)
 
     return x_recv[src]
 
 
-def indexed_all_to_all_v_wrapper(
-    tensor: torch.Tensor,
-    indices: List[torch.Tensor],
+def indexed_alltoall_v_wrapper(
+    tensor: paddle.Tensor,
+    indices: List[paddle.Tensor],
     sizes: List[List[int]],
     dim: int = 0,
     group: Optional[dist.ProcessGroup] = None,
-) -> torch.Tensor:  # pragma: no cover
+) -> paddle.Tensor:  # pragma: no cover
     """
     Implements an indexed version of a distributed AllToAllV
     primitive. It is based on the idea of a single global tensor which
@@ -537,9 +530,9 @@ def indexed_all_to_all_v_wrapper(
 
     Parameters
     ----------
-    tensor : torch.Tensor
+    tensor : paddle.Tensor
         local part of global tensor on each rank
-    indices : List[torch.Tensor]
+    indices : List[paddle.Tensor]
         list of indices on each rank of slices being sent to
         each other rank from this rank
     sizes : List[List[int]]
@@ -553,7 +546,7 @@ def indexed_all_to_all_v_wrapper(
 
     Returns
     -------
-    torch.Tensor
+    paddle.Tensor
         local result of primitive corresponding to indexed global tensor
     """
 
@@ -574,37 +567,36 @@ def indexed_all_to_all_v_wrapper(
     tensor_shape = list(tensor.shape)
     for r in range(comm_size):
         tensor_shape[dim] = sizes[r][rank]
-        x_recv[r] = torch.empty(
+        x_recv[r] = paddle.empty(
             tensor_shape,
             dtype=tensor.dtype,
-            device=tensor.device,
         )
 
-    dist.all_to_all(x_recv, x_send, group=group)
+    dist.alltoall(x_recv, x_send, group=group)
 
-    tensor_to_recv = torch.cat(x_recv, dim=dim)
+    tensor_to_recv = paddle.concat(x_recv, axis=dim)
 
     return tensor_to_recv
 
 
-def indexed_all_to_all_v_wrapper_bwd(
-    tensor: torch.Tensor,
-    indices: List[torch.Tensor],
+def indexed_alltoall_v_wrapper_bwd(
+    tensor: paddle.Tensor,
+    indices: List[paddle.Tensor],
     sizes: List[List[int]],
     tensor_size_along_dim: int,
     use_fp32: bool = True,
     dim: int = 0,
     group: Optional[dist.ProcessGroup] = None,
-) -> torch.Tensor:  # pragma: no cover
+) -> paddle.Tensor:  # pragma: no cover
     """
     Implements the backward pass to the indexed version of a distributed
     AllToAllV primitive.
 
     Parameters
     ----------
-    tensor : torch.Tensor
+    tensor : paddle.Tensor
         local tensor, i.e. gradient on resulting tensor from forward pass
-    indices : List[torch.Tensor]
+    indices : List[paddle.Tensor]
         list of indices on each rank of slices being sent to
         each other rank from this rank
     sizes : List[List[int]]
@@ -623,7 +615,7 @@ def indexed_all_to_all_v_wrapper_bwd(
 
     Returns
     -------
-    torch.Tensor
+    paddle.Tensor
         result of primitive corresponding to indexed global tensor
     """
 
@@ -647,41 +639,203 @@ def indexed_all_to_all_v_wrapper_bwd(
     # send_sizes in forward pass
     send_sizes = [sizes[rank][i] for i in range(comm_size)]
 
-    x_send = torch.split(tensor, recv_sizes, dim=dim)
+    x_send = paddle.split(tensor, recv_sizes, axis=dim)
     x_send = [t.contiguous() for t in x_send]
     x_recv = [None] * comm_size
     for r in range(comm_size):
         tensor_shape[dim] = send_sizes[r]
-        x_recv[r] = torch.empty(
+        x_recv[r] = paddle.empty(
             tensor_shape,
             dtype=tensor.dtype,
-            device=tensor.device,
         )
 
-    dist.all_to_all(x_recv, x_send, group=group)
+    dist.alltoall(x_recv, x_send, group=group)
 
-    tensor_to_recv = torch.cat(x_recv, dim=dim)
+    tensor_to_recv = paddle.concat(x_recv, axis=dim)
 
     # sum up gathered gradients and taking
     # care of precision handling as specified
     # by boolean flag
-    indices = torch.cat(indices, dim=0)
+    indices = paddle.concat(indices, axis=0)
     tensor_shape[dim] = tensor_size_along_dim
-    if use_fp32 and (tensor.dtype.itemsize < 4) and tensor.dtype.is_floating_point:
-        out = torch.zeros(
+    if use_fp32 and (tensor.element_size() < 4) and tensor.is_floating_point():
+        out = paddle.zeros(
             tensor_shape,
-            dtype=torch.float32,
-            device=tensor.device,
+            dtype=paddle.float32,
         )
-        tensor_to_recv = tensor_to_recv.to(dtype=torch.float32)
+        tensor_to_recv = tensor_to_recv.to(dtype=paddle.float32)
     else:
-        out = torch.zeros(
+        out = paddle.zeros(
             tensor_shape,
             dtype=tensor.dtype,
-            device=tensor.device,
         )
 
-    out.index_add_(source=tensor_to_recv, index=indices, dim=dim)
+    out.index_add_(source=tensor_to_recv, index=indices, axis=dim)
+
+    if out.dtype != tensor.dtype:
+        out = out.to(tensor.dtype)
+
+    return out
+
+
+def indexed_all_to_all_v_wrapper(
+    tensor: paddle.Tensor,
+    indices: List[paddle.Tensor],
+    sizes: List[List[int]],
+    dim: int = 0,
+    group: Optional[dist.ProcessGroup] = None,
+) -> paddle.Tensor:  # pragma: no cover
+    """
+    Implements an indexed version of a distributed AllToAllV
+    primitive. It is based on the idea of a single global tensor which
+    is distributed along a specified dimension into chunks of variable size.
+    This primitive assumes a set of indices into this dimension which indicate
+    the corresponding slices sent to each other rank forming an indexed version
+    of an AllToAllV primitive.
+
+    Parameters
+    ----------
+    tensor : paddle.Tensor
+        local part of global tensor on each rank
+    indices : List[paddle.Tensor]
+        list of indices on each rank of slices being sent to
+        each other rank from this rank
+    sizes : List[List[int]]
+        number of indices each rank sends to each other rank,
+        valid and set on each rank, e.g. sizes[0][3] corresponds
+        to the number of slices rank 0 sends to rank 3
+    dim : int
+        dimension along which global tensor is distributed, by default 0
+    group : Optional[dist.ProcessGroup], optional
+        process group along which global tensor is shared, by default None
+
+    Returns
+    -------
+    paddle.Tensor
+        local result of primitive corresponding to indexed global tensor
+    """
+
+    comm_size = dist.get_world_size(group=group)
+    rank = dist.get_rank(group=group)
+
+    if len(sizes) != comm_size:
+        raise ValueError()
+    if dim >= tensor.dim():
+        raise ValueError()
+    if len(sizes[rank]) != comm_size:
+        raise ValueError()
+    if len(indices) != comm_size:
+        raise ValueError()
+
+    x_send = [tensor[idx] for idx in indices]
+    x_recv = [None] * comm_size
+    tensor_shape = list(tensor.shape)
+    for r in range(comm_size):
+        tensor_shape[dim] = sizes[r][rank]
+        x_recv[r] = paddle.empty(
+            tensor_shape,
+            dtype=tensor.dtype,
+        ).to(device=tensor.place)
+
+    dist.alltoall(x_recv, x_send, group=group)
+
+    tensor_to_recv = paddle.concat(x_recv, axis=dim)
+
+    return tensor_to_recv
+
+
+def indexed_all_to_all_v_wrapper_bwd(
+    tensor: paddle.Tensor,
+    indices: List[paddle.Tensor],
+    sizes: List[List[int]],
+    tensor_size_along_dim: int,
+    use_fp32: bool = True,
+    dim: int = 0,
+    group: Optional[dist.ProcessGroup] = None,
+) -> paddle.Tensor:  # pragma: no cover
+    """
+    Implements the backward pass to the indexed version of a distributed
+    AllToAllV primitive.
+
+    Parameters
+    ----------
+    tensor : paddle.Tensor
+        local tensor, i.e. gradient on resulting tensor from forward pass
+    indices : List[paddle.Tensor]
+        list of indices on each rank of slices being sent to
+        each other rank from this rank
+    sizes : List[List[int]]
+        list of the sizes of each chunk on each rank along distributed dimension,
+        valid and set on each rank
+    tensor_size_along_dim : int
+        size of original local tensor along specified dimension,
+        i.e. from the corresponding forward pass
+    use_fp32 : bool, optional
+        flag to specify reduction taking place at least in FP32 precision, by default True
+        only acts on floating point inputs in lower precision
+    dim : int, optional
+        dimension along with global tensor is distributed, by default 0
+    group : Optional[dist.ProcessGroup], optional
+        process group along which global tensor is shared, by default None
+
+    Returns
+    -------
+    paddle.Tensor
+        result of primitive corresponding to indexed global tensor
+    """
+
+    comm_size = dist.get_world_size(group=group)
+    rank = dist.get_rank(group=group)
+
+    if len(sizes) != comm_size:
+        raise ValueError()
+    if dim >= tensor.dim():
+        raise ValueError()
+    if len(sizes[rank]) != comm_size:
+        raise ValueError()
+    if len(indices) != comm_size:
+        raise ValueError()
+
+    tensor_shape = list(tensor.shape)
+
+    # scatter gradients, roles reversed compared to forward pass
+    # recv_sizes in forward pass
+    recv_sizes = [sizes[i][rank] for i in range(comm_size)]
+    # send_sizes in forward pass
+    send_sizes = [sizes[rank][i] for i in range(comm_size)]
+
+    x_send = paddle.split(tensor, recv_sizes, axis=dim)
+    x_send = [t.contiguous() for t in x_send]
+    x_recv = [None] * comm_size
+    for r in range(comm_size):
+        tensor_shape[dim] = send_sizes[r]
+        x_recv[r] = paddle.empty(
+            tensor_shape,
+            dtype=tensor.dtype,
+        ).to(device=tensor.place)
+
+    dist.alltoall(x_recv, x_send, group=group)
+
+    tensor_to_recv = paddle.concat(x_recv, axis=dim)
+
+    # sum up gathered gradients and taking
+    # care of precision handling as specified
+    # by boolean flag
+    indices = paddle.concat(indices, axis=0)
+    tensor_shape[dim] = tensor_size_along_dim
+    if use_fp32 and (tensor.dtype.itemsize < 4) and tensor.dtype.is_floating_point:
+        out = paddle.zeros(
+            tensor_shape,
+            dtype=paddle.float32,
+        ).to(device=tensor.place)
+        tensor_to_recv = tensor_to_recv.to(dtype=paddle.float32)
+    else:
+        out = paddle.zeros(
+            tensor_shape,
+            dtype=tensor.dtype,
+        ).to(device=tensor.place)
+
+    out.index_add_(source=tensor_to_recv, index=indices, axis=dim)
 
     if out.dtype != tensor.dtype:
         out = out.to(tensor.dtype)
@@ -690,19 +844,19 @@ def indexed_all_to_all_v_wrapper_bwd(
 
 
 def mark_module_as_shared(
-    module: nn.Module,
+    module: nn.Layer,
     process_group: Optional[str],
     recurse: bool = True,
     use_fp32_reduction: bool = True,
-) -> nn.Module:
+) -> nn.Layer:
     """
     Helper function to mark parameters of a module as being shared
     across ranks by attaching gradient hooks to the corresponding tensors.
 
     Parameters
     ----------
-    module : nn.Module
-        PyTorch module which is to be marked as having shared parameters.
+    module : nn.Layer
+        Pypaddle module which is to be marked as having shared parameters.
     process_group : str | None
         str indicating process_group which contains ranks across which
         the module's parameters are shared. If passed as None, will default
@@ -719,7 +873,7 @@ def mark_module_as_shared(
     group = DistributedManager().group(process_group)
     handle_key = "_shared_weight_dist_hook"
 
-    def hook(grad: torch.Tensor) -> torch.Tensor:
+    def hook(grad: paddle.Tensor) -> paddle.Tensor:
         # the documentation states that
         # "The hook should not modify its argument, but it can optionally return a new gradient
         #  which will be used in place of grad."
@@ -727,7 +881,7 @@ def mark_module_as_shared(
         grad = _reduce(grad.clone(), group=group, use_fp32=use_fp32_reduction)
         return grad
 
-    def hook_post_accum(param: torch.Tensor) -> None:
+    def hook_post_accum(param: paddle.Tensor) -> None:
         # the documentation states that
         # "Note that, unlike other autograd hooks, this hook operates on the tensor that requires grad
         #  and not the grad itself. The hook can in-place modify and access its Tensor argument,
@@ -738,27 +892,27 @@ def mark_module_as_shared(
         error_msg = f"Parameter {name} already marked as having shared weights, can't mark it again!"
         if hasattr(param, handle_key):
             raise RuntimeError(error_msg)
-        if torch.__version__ < (2, 1):
+        if True:
             handle = param.register_hook(hook)
-        else:
-            handle = param.register_post_accumulate_grad_hook(hook_post_accum)
+        # else:
+        #     handle = param.register_post_accumulate_grad_hook(hook_post_accum)
         setattr(param, handle_key, handle)
 
     return module
 
 
 def unmark_module_as_shared(
-    module: nn.Module,
+    module: nn.Layer,
     recurse: bool = True,
-) -> nn.Module:
+) -> nn.Layer:
     """
     Helper function to unmark parameters of a module as being shared
     across ranks by removing attached gradient hooks.
 
     Parameters
     ----------
-    module : nn.Module
-        PyTorch module which is to be unmarked as having shared parameters.
+    module : nn.Layer
+        Pypaddle module which is to be unmarked as having shared parameters.
     recurse : bool, default=True
         Flag indicating whether the module's parameters are traversed in
         a recursive fashion, i.e. whether sub-modules are also considered

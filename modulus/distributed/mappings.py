@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
+import paddle
 
 from modulus.distributed.manager import DistributedManager
 from modulus.distributed.utils import (
@@ -25,7 +25,7 @@ from modulus.distributed.utils import (
 )
 
 
-class _CopyToParallelRegion(torch.autograd.Function):
+class _CopyToParallelRegion(paddle.autograd.PyLayer):
     """Pass the input to the parallel region"""
 
     @staticmethod
@@ -42,7 +42,7 @@ class _CopyToParallelRegion(torch.autograd.Function):
         return _reduce(grad_output, group=DistributedManager().group(ctx.group)), None
 
 
-class _ReduceFromParallelRegion(torch.autograd.Function):
+class _ReduceFromParallelRegion(paddle.autograd.PyLayer):
     """All-reduce the input from the parallel region"""
 
     @staticmethod
@@ -58,7 +58,7 @@ class _ReduceFromParallelRegion(torch.autograd.Function):
         return grad_output, None
 
 
-class _ScatterToParallelRegion(torch.autograd.Function):
+class _ScatterToParallelRegion(paddle.autograd.PyLayer):
     """Split the input and keep only the chunk corresponding to the rank."""
 
     @staticmethod
@@ -88,7 +88,7 @@ class _ScatterToParallelRegion(torch.autograd.Function):
         )
 
 
-class _GatherFromParallelRegion(torch.autograd.Function):
+class _GatherFromParallelRegion(paddle.autograd.PyLayer):
     """Gather the input from parallel region and concatenate."""
 
     @staticmethod
@@ -116,7 +116,7 @@ class _GatherFromParallelRegion(torch.autograd.Function):
 
 
 # -----------------
-# Helper functions.
+# Helper PyLayers.
 # -----------------
 def copy_to_parallel_region(input, group):  # pragma: no cover
     """Copy input"""

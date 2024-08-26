@@ -14,11 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 
 from typing import List, Optional
 
-import torch
-import torch.distributed as dist
+import paddle
+import paddle.distributed as dist
 
 from .utils import (
     all_gather_v_bwd_wrapper,
@@ -30,7 +31,7 @@ from .utils import (
 )
 
 
-class AllGatherVAutograd(torch.autograd.Function):
+class AllGatherVAutograd(paddle.autograd.PyLayer):
     """
     Autograd Wrapper for a distributed AllGatherV primitive.
     It is based on the idea of a single global tensor which is distributed
@@ -47,12 +48,12 @@ class AllGatherVAutograd(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
-        tensor: torch.Tensor,
+        tensor: paddle.Tensor,
         sizes: List[int],
         dim: int = 0,
         use_fp32: bool = True,
-        group: Optional[dist.ProcessGroup] = None,
-    ) -> torch.Tensor:  # pragma: no cover
+        group: Optional[dist.communication.group.Group] = None,
+    ) -> paddle.Tensor:  # pragma: no cover
         """forward pass of the Distributed AllGatherV primitive"""
 
         gathered_tensor = all_gather_v_wrapper(tensor, sizes, dim=dim, group=group)
@@ -63,7 +64,7 @@ class AllGatherVAutograd(torch.autograd.Function):
         return gathered_tensor
 
     @staticmethod
-    def backward(ctx, grad_output: torch.Tensor):  # pragma: no cover
+    def backward(ctx, grad_output: paddle.Tensor):  # pragma: no cover
         """backward pass of the of the Distributed AllGatherV primitive"""
 
         grad_tensor = all_gather_v_bwd_wrapper(
@@ -74,13 +75,13 @@ class AllGatherVAutograd(torch.autograd.Function):
             group=ctx.group,
         )
 
-        if not ctx.needs_input_grad[0]:
-            grad_tensor = None
+        # if not ctx.needs_input_grad[0]:
+        #     grad_tensor = None
 
         return grad_tensor, None, None, None, None
 
 
-class GatherVAutograd(torch.autograd.Function):
+class GatherVAutograd(paddle.autograd.PyLayer):
     """
     Autograd Wrapper for a distributed GatherV primitive.
     It is based on the idea of a single global tensor which is distributed
@@ -98,12 +99,12 @@ class GatherVAutograd(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
-        tensor: torch.Tensor,
+        tensor: paddle.Tensor,
         sizes: List[int],
         dim: int = 0,
         dst: int = 0,
-        group: Optional[dist.ProcessGroup] = None,
-    ) -> torch.Tensor:  # pragma: no cover
+        group: Optional[dist.communication.group.Group] = None,
+    ) -> paddle.Tensor:  # pragma: no cover
         """forward pass of the distributed GatherV primitive"""
 
         gathered_tensor = gather_v_wrapper(tensor, sizes, dim=dim, dst=dst, group=group)
@@ -117,21 +118,21 @@ class GatherVAutograd(torch.autograd.Function):
     @staticmethod
     def backward(
         ctx,
-        grad_output: torch.Tensor,
-    ) -> torch.Tensor:  # pragma: no cover
+        grad_output: paddle.Tensor,
+    ) -> paddle.Tensor:  # pragma: no cover
         """backward pass of the Distributed GatherV primitive"""
 
         grad_tensor = scatter_v_wrapper(
             grad_output, ctx.sizes, dim=ctx.dim, src=ctx.dst, group=ctx.group
         )
 
-        if not ctx.needs_input_grad[0]:
-            grad_tensor = None
+        # if not ctx.needs_input_grad[0]:
+        #     grad_tensor = None
 
         return grad_tensor, None, None, None, None
 
 
-class ScatterVAutograd(torch.autograd.Function):
+class ScatterVAutograd(paddle.autograd.PyLayer):
     """
     Autograd Wrapper for Distributed ScatterV. It is based
     on the idea of a single global tensor which is distributed along
@@ -148,12 +149,12 @@ class ScatterVAutograd(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
-        tensor: torch.Tensor,
+        tensor: paddle.Tensor,
         sizes: List[int],
         dim: int = 0,
         src: int = 0,
-        group=Optional[dist.ProcessGroup],
-    ) -> torch.Tensor:  # pragma: no cover
+        group=Optional[dist.communication.group.Group],
+    ) -> paddle.Tensor:  # pragma: no cover
         """forward pass of the Distributed ScatterV primitive"""
 
         scattered_tensor = scatter_v_wrapper(
@@ -168,20 +169,20 @@ class ScatterVAutograd(torch.autograd.Function):
         return scattered_tensor
 
     @staticmethod
-    def backward(ctx, grad_output: torch.Tensor) -> torch.Tensor:  # pragma: no cover
+    def backward(ctx, grad_output: paddle.Tensor) -> paddle.Tensor:  # pragma: no cover
         """backward pass of the Distributed ScatterV primitive"""
 
         grad_tensor = gather_v_wrapper(
             grad_output, ctx.sizes, dim=ctx.dim, dst=ctx.src, group=ctx.group
         )
 
-        if not ctx.needs_input_grad[0]:
-            grad_tensor = None
+        # if not ctx.needs_input_grad[0]:
+        #     grad_tensor = None
 
         return grad_tensor, None, None, None, None
 
 
-class IndexedAllToAllVAutograd(torch.autograd.Function):
+class IndexedAllToAllVAutograd(paddle.autograd.PyLayer):
     """
     Autograd Wrapper for an Indexed AllToAllV primitive. It is based on the
     idea of a single global tensor which is distributed along a
@@ -198,13 +199,13 @@ class IndexedAllToAllVAutograd(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx,
-        tensor: torch.Tensor,
-        indices: List[torch.Tensor],
+        tensor: paddle.Tensor,
+        indices: List[paddle.Tensor],
         sizes: List[List[int]],
         use_fp32: bool = True,
         dim: int = 0,
-        group: Optional[dist.ProcessGroup] = None,
-    ) -> torch.Tensor:  # pragma: no cover
+        group: Optional[dist.communication.group.Group] = None,
+    ) -> paddle.Tensor:  # pragma: no cover
         """forward pass of the Distributed IndexedAlltoAllV primitive"""
 
         tensor_to_recv = indexed_all_to_all_v_wrapper(
@@ -227,8 +228,8 @@ class IndexedAllToAllVAutograd(torch.autograd.Function):
     @staticmethod
     def backward(
         ctx,
-        grad_output: torch.Tensor,
-    ) -> torch.Tensor:  # pragma: no cover
+        grad_output: paddle.Tensor,
+    ) -> paddle.Tensor:  # pragma: no cover
         """backward pass of the Distributed IndexedAlltoAllV primitive"""
 
         grad_tensor = indexed_all_to_all_v_wrapper_bwd(
@@ -241,19 +242,19 @@ class IndexedAllToAllVAutograd(torch.autograd.Function):
             group=ctx.group,
         )
 
-        if not ctx.needs_input_grad[0]:
-            grad_tensor = None
+        # if not ctx.needs_input_grad[0]:
+        #     grad_tensor = None
 
         return grad_tensor, None, None, None, None, None, None
 
 
 def all_gather_v(
-    tensor: torch.Tensor,
+    tensor: paddle.Tensor,
     sizes: List[int],
     dim: int = 0,
     use_fp32: bool = True,
-    group: Optional[dist.ProcessGroup] = None,
-) -> torch.Tensor:  # pragma: no cover
+    group: Optional[dist.communication.group.Group] = None,
+) -> paddle.Tensor:  # pragma: no cover
     """
     Autograd Wrapper for a distributed AllGatherV primitive.
     It is based on the idea of a single global tensor which is distributed
@@ -268,7 +269,7 @@ def all_gather_v(
 
     Parameters
     ----------
-    tensor : "torch.Tensor"
+    tensor : "paddle.Tensor"
         local tensor on each rank
     sizes : List[int]
         list of the sizes of each chunk on each rank along distributed dimension,
@@ -278,12 +279,12 @@ def all_gather_v(
     use_fp32 : bool, optional
         boolean flag to indicate whether to use FP32 precision for the
         reduction in the backward pass, by default True
-    group : Optional[dist.ProcessGroup], optional
+    group : Optional[dist.communication.group.Group], optional
         process group along which global tensor is shared, by default None
 
     Returns
     -------
-    torch.Tensor
+    paddle.Tensor
         full global tensor, valid on each rank
     """
 
@@ -291,12 +292,12 @@ def all_gather_v(
 
 
 def gather_v(
-    tensor: torch.Tensor,
+    tensor: paddle.Tensor,
     sizes: List[int],
     dim: int = 0,
     dst: int = 0,
-    group: Optional[dist.ProcessGroup] = None,
-) -> torch.Tensor:  # pragma: no cover
+    group: Optional[dist.communication.group.Group] = None,
+) -> paddle.Tensor:  # pragma: no cover
     """
     Autograd Wrapper for a distributed GatherV primitive.
     It is based on the idea of a single global tensor which is distributed
@@ -312,7 +313,7 @@ def gather_v(
 
     Parameters
     ----------
-    tensor : torch.Tensor
+    tensor : paddle.Tensor
         local tensor on each rank
     sizes : List[int]
         list of the sizes of each chunk on each rank along distributed dimension,
@@ -321,12 +322,12 @@ def gather_v(
         dimension along which global tensor is distributed, by default 0
     dst : int, optional
         destination rank which contains the full global tensor after the operation, by default 0
-    group : Optional[dist.ProcessGroup], optional
+    group : Optional[dist.communication.group.Group], optional
         process group along which global tensor is shared, by default None
 
     Returns
     -------
-    torch.Tensor
+    paddle.Tensor
         full global tensor, valid on destination rank
     """
 
@@ -334,12 +335,12 @@ def gather_v(
 
 
 def scatter_v(
-    tensor: torch.Tensor,
+    tensor: paddle.Tensor,
     sizes: List[int],
     dim: int = 0,
     src: int = 0,
-    group: Optional[dist.ProcessGroup] = None,
-) -> torch.Tensor:  # pragma: no cover
+    group: Optional[dist.communication.group.Group] = None,
+) -> paddle.Tensor:  # pragma: no cover
     """
     Autograd Wrapper for Distributed ScatterV. It is based
     on the idea of a single global tensor which is distributed along
@@ -354,7 +355,7 @@ def scatter_v(
 
     Parameters
     ----------
-    tensor : torch.Tensor
+    tensor : paddle.Tensor
         global tensor, valid on source rank
     sizes : List[int]
         list of the sizes of each chunk on each rank along distributed dimension,
@@ -363,12 +364,12 @@ def scatter_v(
         dimension along which global tensor is distributed, by default 0
     src : int, optional
         source rank of primitive, i.e. rank of original full global tensor, by default 0
-    group : Optional[dist.ProcessGroup], optional
+    group : Optional[dist.communication.group.Group], optional
         process group along which global tensor is shared, by default None
 
     Returns
     -------
-    torch.Tensor
+    paddle.Tensor
         corresponding local part of the global tensor on each rank
     """
 
@@ -376,13 +377,13 @@ def scatter_v(
 
 
 def indexed_all_to_all_v(
-    tensor: torch.Tensor,
-    indices: List[torch.Tensor],
+    tensor: paddle.Tensor,
+    indices: List[paddle.Tensor],
     sizes: List[List[int]],
     use_fp32: bool = True,
     dim: int = 0,
-    group: Optional[dist.ProcessGroup] = None,
-) -> torch.Tensor:  # pragma: no cover
+    group: Optional[dist.communication.group.Group] = None,
+) -> paddle.Tensor:  # pragma: no cover
     """
     Autograd Wrapper for an Indexed AllToAllV primitive. It is based on the
     idea of a single global tensor which is distributed along a
@@ -397,9 +398,9 @@ def indexed_all_to_all_v(
 
     Parameters
     ----------
-    tensor : torch.Tensor
+    tensor : paddle.Tensor
         local part of global tensor on each rank
-    indices : List[torch.Tensor]
+    indices : List[paddle.Tensor]
         list of indices on each rank of slices being sent to
         each other rank from this rank
     sizes : List[List[int]]
@@ -411,12 +412,12 @@ def indexed_all_to_all_v(
         in the backward pass, by default True
     dim : int
         dimension along which global tensor is distributed, by default 0
-    group : Optional[dist.ProcessGroup], optional
+    group : Optional[dist.communication.group.Group], optional
         process group along which global tensor is shared, by default None
 
     Returns
     -------
-    torch.Tensor
+    paddle.Tensor
         local result of primitive corresponding to indexed global tensor
     """
 

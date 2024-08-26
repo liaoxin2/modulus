@@ -20,8 +20,8 @@ from typing import Optional
 from warnings import warn
 
 import numpy as np
-import torch
-import torch.distributed as dist
+import paddle
+import paddle.distributed as dist
 
 from modulus.distributed.config import ProcessGroupConfig, ProcessGroupNode
 
@@ -96,9 +96,9 @@ class DistributedManager(object):
         if not hasattr(obj, "_distributed"):
             obj._distributed = False
         if not hasattr(obj, "_device"):
-            obj._device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            obj._device = "gpu" if (paddle.device.cuda.device_count() > 0) else "cpu"
         if not hasattr(obj, "_cuda"):
-            obj._cuda = torch.cuda.is_available()
+            obj._cuda = paddle.device.cuda.device_count() > 0
         if not hasattr(obj, "_broadcast_buffers"):
             obj._broadcast_buffers = False
         if not hasattr(obj, "_find_unused_parameters"):
@@ -237,7 +237,7 @@ class DistributedManager(object):
     @staticmethod
     def get_available_backend():
         """Get communication backend"""
-        if torch.cuda.is_available() and torch.distributed.is_nccl_available():
+        if paddle.device.cuda.device_count() > 0:
             return "nccl"
         else:
             return "gloo"
@@ -252,10 +252,10 @@ class DistributedManager(object):
             if local_rank is not None:
                 local_rank = int(local_rank)
             else:
-                local_rank = rank % torch.cuda.device_count()
+                local_rank = rank % paddle.device.cuda.device_count()
 
         else:
-            local_rank = rank % torch.cuda.device_count()
+            local_rank = rank % paddle.device.cuda.device_count()
 
         # Read env variables
         addr = os.environ.get("MASTER_ADDR")
@@ -382,42 +382,43 @@ class DistributedManager(object):
         DistributedManager._shared_state["_is_initialized"] = True
         manager = DistributedManager()
 
-        manager._distributed = torch.distributed.is_available()
+        manager._distributed = paddle.distributed.is_available()
         if manager._distributed:
             # Update rank and world_size if using distributed
             manager._rank = rank
             manager._world_size = world_size
             if local_rank is None:
-                manager._local_rank = rank % torch.cuda.device_count()
+                manager._local_rank = rank % paddle.device.cuda.device_count()
             else:
                 manager._local_rank = local_rank
 
-        manager._device = torch.device(
-            f"cuda:{manager.local_rank}" if torch.cuda.is_available() else "cpu"
+        manager._device = (
+            f"gpu:{manager.local_rank}"
+            if (paddle.device.cuda.device_count() > 0)
+            else "cpu"
         )
 
         if manager._distributed:
             # Setup distributed process group
             try:
-                dist.init_process_group(
-                    backend,
-                    rank=manager.rank,
-                    world_size=manager.world_size,
-                    device_id=manager.device,
+                dist.init_parallel_env(
+                    # backend,
+                    # rank=manager.rank,
+                    # world_size=manager.world_size,
+                    # device_id=manager.device,
                 )
             except TypeError:
                 # device_id only introduced in PyTorch 2.3
-                dist.init_process_group(
-                    backend,
-                    rank=manager.rank,
-                    world_size=manager.world_size,
+                dist.init_parallel_env(
+                    # backend,
+                    # rank=manager.rank,
+                    # world_size=manager.world_size,
                 )
 
-        if torch.cuda.is_available():
+        if paddle.device.cuda.device_count() > 0:
             # Set device for this process and empty cache to optimize memory usage
-            torch.cuda.set_device(manager.device)
-            torch.cuda.device(manager.device)
-            torch.cuda.empty_cache()
+            paddle.device.set_device(manager.device)
+            paddle.device.cuda.empty_cache()
 
         manager._initialization_method = method
 
@@ -449,7 +450,7 @@ class DistributedManager(object):
         manager = DistributedManager()
         if not manager.distributed:
             raise AssertionError(
-                "torch.distributed is unavailable. "
+                "paddle.distributed is unavailable. "
                 "Check pytorch build to ensure the distributed package is available. "
                 "If building PyTorch from source, set `USE_DISTRIBUTED=1` "
                 "to enable the distributed package"
@@ -460,6 +461,7 @@ class DistributedManager(object):
 
         # Get parent group's params
         group = manager._groups[group_name] if group_name else None
+        print(name, f"group = {group}")
         group_size = dist.get_world_size(group=group)
         num_groups = manager.world_size // group_size
 
@@ -519,7 +521,7 @@ class DistributedManager(object):
         manager = DistributedManager()
         if not manager.distributed:
             raise AssertionError(
-                "torch.distributed is unavailable. "
+                "paddle.distributed is unavailable. "
                 "Check pytorch build to ensure the distributed package is available. "
                 "If building PyTorch from source, set `USE_DISTRIBUTED=1` "
                 "to enable the distributed package"
@@ -559,7 +561,6 @@ class DistributedManager(object):
                 " populated. Ensure that config.set_leaf_group_sizes is called first"
                 " with `update_parent_sizes = True`"
             )
-
         DistributedManager.create_process_subgroup(
             node.name, node.size, group_name=parent, verbose=verbose
         )
@@ -611,7 +612,7 @@ class DistributedManager(object):
             and "_distributed" in DistributedManager._shared_state
             and DistributedManager._shared_state["_distributed"]
         ):
-            if torch.cuda.is_available():
+            if paddle.device.cuda.device_count() > 0:
                 dist.barrier(device_ids=[DistributedManager().local_rank])
             else:
                 dist.barrier()

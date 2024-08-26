@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
+import paddle
 
 from modulus.distributed.manager import DistributedManager
 from modulus.distributed.mappings import (
@@ -47,8 +47,8 @@ def conj_pad_helper_2d(tensor, pad_dim, other_dim, new_size):
         else slice(1, x)
         for idx, x in enumerate(tensor_pad_gather.shape)
     ]
-    tensor_pad_gather[flip_slice] = torch.flip(
-        tensor_pad_gather[flip_slice], dims=[other_dim]
+    tensor_pad_gather[flip_slice] = paddle.flip(
+        tensor_pad_gather[flip_slice], axis=[other_dim]
     )
 
     # truncate:
@@ -59,7 +59,7 @@ def conj_pad_helper_2d(tensor, pad_dim, other_dim, new_size):
     return result
 
 
-class DistributedRFFT2(torch.autograd.Function):
+class DistributedRFFT2(paddle.autograd.Function):
     """
     Autograd Wrapper for a distributed 2D real to complex FFT primitive.
     It is based on the idea of a single global tensor which is distributed
@@ -76,7 +76,7 @@ class DistributedRFFT2(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, s, dim, norm="ortho"):
         # NVTX marker
-        torch.cuda.nvtx.range_push("DistributedRFFT2.forward")
+        paddle.device.cuda.nvtx.range_push("DistributedRFFT2.forward")
 
         # save:
         ctx.s = s
@@ -84,8 +84,8 @@ class DistributedRFFT2(torch.autograd.Function):
         ctx.norm = norm
 
         # assume last dim is split (second to last is contiguous):
-        x1 = torch.fft.fft(x, n=s[0], dim=dim[0], norm=norm)
-        torch.cuda.nvtx.range_pop()
+        x1 = paddle.fft.fft(x, n=s[0], axis=dim[0], norm=norm)
+        paddle.device.cuda.nvtx.range_pop()
 
         # transpose
         x1_recv, _ = distributed_transpose(
@@ -95,12 +95,12 @@ class DistributedRFFT2(torch.autograd.Function):
             group=DistributedManager().group("spatial_parallel"),
             async_op=False,
         )
-        x1_tran = torch.cat(x1_recv, dim=dim[1])
-        torch.cuda.nvtx.range_pop()
+        x1_tran = paddle.concat(x1_recv, axis=dim[1])
+        paddle.device.cuda.nvtx.range_pop()
 
         # another fft:
-        x2 = torch.fft.fft(x1_tran, n=s[1], dim=dim[1], norm=norm)
-        torch.cuda.nvtx.range_pop()
+        x2 = paddle.fft.fft(x1_tran, n=s[1], axis=dim[1], norm=norm)
+        paddle.device.cuda.nvtx.range_pop()
 
         # truncate in last dim:
         ctx.last_dim_size = x2.shape[dim[1]]
@@ -108,7 +108,7 @@ class DistributedRFFT2(torch.autograd.Function):
         output = truncate_helper(x2, dim[1], last_dim_size_trunc)
 
         # pop range
-        torch.cuda.nvtx.range_pop()
+        paddle.device.cuda.nvtx.range_pop()
 
         return output
 
@@ -124,7 +124,7 @@ class DistributedRFFT2(torch.autograd.Function):
         g_pad = pad_helper(grad_output, dim[1], last_dim_size)
 
         # do fft
-        g1 = torch.fft.ifft(g_pad, n=s[1], dim=dim[1], norm=norm)
+        g1 = paddle.fft.ifft(g_pad, n=s[1], axis=dim[1], norm=norm)
 
         # transpose
         g1_recv, _ = distributed_transpose(
@@ -134,15 +134,17 @@ class DistributedRFFT2(torch.autograd.Function):
             group=DistributedManager().group("spatial_parallel"),
             async_op=False,
         )
-        g1_tran = torch.cat(g1_recv, dim=dim[0])
+        g1_tran = paddle.concat(g1_recv, axis=dim[0])
 
         # now do the BW fft:
-        grad_input = torch.real(torch.fft.ifft(g1_tran, n=s[0], dim=dim[0], norm=norm))
+        grad_input = paddle.real(
+            paddle.fft.ifft(g1_tran, n=s[0], axis=dim[0], norm=norm)
+        )
 
         return grad_input, None, None, None
 
 
-class DistributedIRFFT2(torch.autograd.Function):
+class DistributedIRFFT2(paddle.autograd.Function):
     """
     Autograd Wrapper for a distributed 2D real to complex IFFT primitive.
     It is based on the idea of a single global tensor which is distributed
@@ -159,7 +161,7 @@ class DistributedIRFFT2(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, s, dim, norm="ortho"):
         # NVTX marker
-        torch.cuda.nvtx.range_push("DistributedIRFFT2.forward")
+        paddle.device.cuda.nvtx.range_push("DistributedIRFFT2.forward")
 
         # save:
         ctx.s = s
@@ -176,7 +178,7 @@ class DistributedIRFFT2(torch.autograd.Function):
 
         # fft in contig contig dim
         x_pad = conj_pad_helper_2d(x, dim[1], dim[0], ctx.last_dim_size)
-        x1 = torch.fft.ifft(x_pad, n=ctx.last_dim_size, dim=dim[1], norm=norm)
+        x1 = paddle.fft.ifft(x_pad, n=ctx.last_dim_size, axis=dim[1], norm=norm)
 
         # transpose
         x1_recv, _ = distributed_transpose(
@@ -186,16 +188,16 @@ class DistributedIRFFT2(torch.autograd.Function):
             group=DistributedManager().group("spatial_parallel"),
             async_op=False,
         )
-        x1_tran = torch.cat(x1_recv, dim=dim[0])
+        x1_tran = paddle.concat(x1_recv, axis=dim[0])
 
         # ifft in contig dim
-        x2 = torch.fft.ifft(x1_tran, n=first_dim_size, dim=dim[0], norm=norm)
+        x2 = paddle.fft.ifft(x1_tran, n=first_dim_size, axis=dim[0], norm=norm)
 
         # take real part
-        output = torch.real(x2).contiguous()
+        output = paddle.real(x2).contiguous()
 
         # pop range
-        torch.cuda.nvtx.range_pop()
+        paddle.device.cuda.nvtx.range_pop()
 
         return output
 
@@ -207,7 +209,7 @@ class DistributedIRFFT2(torch.autograd.Function):
         orig_dim_size = ctx.orig_dim_size
 
         # do fft
-        g1 = torch.fft.fft(grad_output, dim=dim[0], norm=norm)
+        g1 = paddle.fft.fft(grad_output, axis=dim[0], norm=norm)
 
         # transpose
         g1_recv, _ = distributed_transpose(
@@ -217,10 +219,10 @@ class DistributedIRFFT2(torch.autograd.Function):
             group=DistributedManager().group("spatial_parallel"),
             async_op=False,
         )
-        g1_tran = torch.cat(g1_recv, dim=dim[1])
+        g1_tran = paddle.concat(g1_recv, axis=dim[1])
 
         # now do the BW fft:
-        x2 = torch.fft.fft(g1_tran, dim=dim[1], norm=norm)
+        x2 = paddle.fft.fft(g1_tran, axis=dim[1], norm=norm)
 
         # truncate
         grad_input = truncate_helper(x2, dim[1], orig_dim_size)
