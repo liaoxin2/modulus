@@ -89,7 +89,7 @@ class UNet(Module):  # TODO a lot of redundancy, need to clean up
         sigma_min=0,
         sigma_max=float("inf"),
         sigma_data=0.5,
-        model_type="SongUNet",
+        model_type="SongUNetPosEmbd",
         **model_kwargs,
     ):
         super().__init__(meta=MetaData)

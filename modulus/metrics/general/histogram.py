@@ -64,7 +64,6 @@ def linspace(start: Tensor, stop: Tensor, num: int) -> Tensor:  # pragma: no cov
     return out
 
 
-@paddle.jit.script
 def _low_memory_bin_reduction_counts(
     inputs: Tensor, bin_edges: Tensor, counts: Tensor, number_of_bins: int
 ):  # pragma: no cover
@@ -108,7 +107,6 @@ def _low_memory_bin_reduction_counts(
     return counts
 
 
-@paddle.jit.script
 def _high_memory_bin_reduction_counts(
     inputs: Tensor, bin_edges: Tensor, counts: Tensor, number_of_bins: int
 ) -> Tensor:  # pragma: no cover
@@ -146,7 +144,6 @@ def _high_memory_bin_reduction_counts(
     return counts
 
 
-@paddle.jit.script
 def _low_memory_bin_reduction_cdf(
     inputs: Tensor, bin_edges: Tensor, counts: Tensor, number_of_bins: int
 ) -> Tensor:  # pragma: no cover
@@ -180,7 +177,6 @@ def _low_memory_bin_reduction_cdf(
     return counts
 
 
-@paddle.jit.script
 def _high_memory_bin_reduction_cdf(
     inputs: paddle.Tensor,
     bin_edges: paddle.Tensor,

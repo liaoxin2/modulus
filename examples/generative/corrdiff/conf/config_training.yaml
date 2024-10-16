@@ -25,7 +25,7 @@ hydra:
 defaults:
 
   # Dataset
-  - dataset/gfdl
+  - dataset/cwb_train
 
   # Model
   - model/corrdiff_regression

@@ -1,3 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import paddle
 import numpy as np
 from omegaconf import ListConfig
@@ -12,9 +28,9 @@ def set_patch_shape(img_shape, patch_shape):
         patch_shape_y = img_shape_y
     if patch_shape_x != img_shape_x or patch_shape_y != img_shape_y:
         if patch_shape_x != patch_shape_y:
-            raise NotImplementedError('Rectangular patch not supported yet')
+            raise NotImplementedError("Rectangular patch not supported yet")
         if patch_shape_x % 32 != 0 or patch_shape_y % 32 != 0:
-            raise ValueError('Patch shape needs to be a multiple of 32')
+            raise ValueError("Patch shape needs to be a multiple of 32")
     return (img_shape_y, img_shape_x), (patch_shape_y, patch_shape_x)
 
 
@@ -37,8 +53,7 @@ def set_seed(rank):
 # >>>>>>    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
 
 
-def compute_num_accumulation_rounds(total_batch_size, batch_size_per_gpu,
-    world_size):
+def compute_num_accumulation_rounds(total_batch_size, batch_size_per_gpu, world_size):
     """
     Calculate the total batch size per GPU in a distributed setting, log the batch size per GPU, ensure it's within valid limits,
     determine the number of accumulation rounds, and validate that the global batch size matches the expected value.
@@ -48,11 +63,10 @@ def compute_num_accumulation_rounds(total_batch_size, batch_size_per_gpu,
     if batch_size_per_gpu is None or batch_size_per_gpu > batch_gpu_total:
         batch_size_per_gpu = batch_gpu_total
     num_accumulation_rounds = batch_gpu_total // batch_size_per_gpu
-    if (total_batch_size != batch_size_per_gpu * num_accumulation_rounds *
-        world_size):
+    if total_batch_size != batch_size_per_gpu * num_accumulation_rounds * world_size:
         raise ValueError(
-            'total_batch_size must be equal to batch_size_per_gpu * num_accumulation_rounds * world_size'
-            )
+            "total_batch_size must be equal to batch_size_per_gpu * num_accumulation_rounds * world_size"
+        )
     return batch_gpu_total, num_accumulation_rounds
 
 
@@ -66,21 +80,26 @@ def handle_and_clip_gradients(model, grad_clip_threshold=None):
     """
     for param in model.parameters():
         if param.grad is not None:
-            paddle.assign(paddle.nan_to_num(x=param.grad, nan=0.0, posinf=
-                100000.0, neginf=-100000.0), output=param.grad)
+            paddle.assign(
+                paddle.nan_to_num(
+                    x=param.grad, nan=0.0, posinf=100000.0, neginf=-100000.0
+                ),
+                output=param.grad,
+            )
     if grad_clip_threshold is not None:
-        paddle.nn.utils.clip_grad_norm_(parameters=model.parameters(),
-            max_norm=grad_clip_threshold)
+        paddle.nn.utils.clip_grad_norm_(
+            parameters=model.parameters(), max_norm=grad_clip_threshold
+        )
 
 
 def parse_model_args(args):
     """Convert ListConfig values in args to tuples."""
-    return {k: (tuple(v) if isinstance(v, ListConfig) else v) for k, v in
-        args.items()}
+    return {k: (tuple(v) if isinstance(v, ListConfig) else v) for k, v in args.items()}
 
 
-def is_time_for_periodic_task(cur_nimg, freq, done, batch_size, rank,
-    rank_0_only=False):
+def is_time_for_periodic_task(
+    cur_nimg, freq, done, batch_size, rank, rank_0_only=False
+):
     """Should we perform a task that is done every `freq` samples?"""
     if rank_0_only and rank != 0:
         return False

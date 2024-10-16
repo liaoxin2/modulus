@@ -345,9 +345,7 @@ class SongUNet(Module):
             emb = silu(self.map_layer0(emb))
             emb = silu(self.map_layer1(emb))
         else:
-            emb = paddle.zeros(
-                (noise_labels.shape[0], self.emb_channels)
-            )
+            emb = paddle.zeros((noise_labels.shape[0], self.emb_channels))
 
         # Encoder.
         skips = []
@@ -573,7 +571,7 @@ class SongUNetPosEmbd(SongUNet):
             y = np.meshgrid(np.linspace(-1, 1, self.img_shape_x))
             grid_x, grid_y = np.meshgrid(y, x)
             grid = paddle.from_numpy(np.stack((grid_x, grid_y), axis=0))
-            grid.requires_grad = False
+            grid.stop_gradient = False
         elif self.gridtype == "sinusoidal" and self.N_grid_channels == 4:
             # print('sinusuidal grid added ......')
             x1 = np.meshgrid(np.sin(np.linspace(0, 2 * np.pi, self.img_shape_y)))
@@ -583,13 +581,13 @@ class SongUNetPosEmbd(SongUNet):
             grid_x1, grid_y1 = np.meshgrid(y1, x1)
             grid_x2, grid_y2 = np.meshgrid(y2, x2)
             grid = paddle.squeeze(
-                paddle.from_numpy(
+                paddle.to_tensor(
                     np.expand_dims(
                         np.stack((grid_x1, grid_y1, grid_x2, grid_y2), axis=0), axis=0
                     )
                 )
             )
-            grid.requires_grad = False
+            grid.stop_gradient = False
         elif self.gridtype == "sinusoidal" and self.N_grid_channels != 4:
             if self.N_grid_channels % 4 != 0:
                 raise ValueError("N_grid_channels must be a factor of 4")

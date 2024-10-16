@@ -1,3 +1,19 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,7 +35,7 @@ def open_data(file, group=False):
         xarray.Dataset: An xarray dataset containing the data from the NetCDF file.
     """
     root = xarray.open_dataset(file)
-    root = root.set_coords(['lat', 'lon'])
+    root = root.set_coords(["lat", "lon"])
     ds = xarray.open_dataset(file, group=group)
     ds.coords.update(root.coords)
     ds.attrs.update(root.attrs)
@@ -50,8 +66,10 @@ def haversine(lat1, lon1, lat2, lon2):
     earth_radius = 6371000
     dlat_rad = lat2_rad - lat1_rad
     dlon_rad = lon2_rad - lon1_rad
-    a = np.sin(dlat_rad / 2) ** 2 + np.cos(lat1_rad) * np.cos(lat2_rad
-        ) * np.sin(dlon_rad / 2) ** 2
+    a = (
+        np.sin(dlat_rad / 2) ** 2
+        + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon_rad / 2) ** 2
+    )
     c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
     distance_meters = earth_radius * c
     return distance_meters
@@ -134,14 +152,15 @@ def main(file, output):
     """
 
     def savefig(name):
-        path = os.path.join(output, name + '.png')
+        path = os.path.join(output, name + ".png")
         plt.savefig(path)
+
     samples = {}
-    samples['prediction'] = open_data(file, group='prediction')
-    samples['prediction_mean'] = samples['prediction'].mean('ensemble')
-    samples['truth'] = open_data(file, group='truth')
-    samples['ERA5'] = open_data(file, group='input')
-    prediction = samples['prediction']
+    samples["prediction"] = open_data(file, group="prediction")
+    samples["prediction_mean"] = samples["prediction"].mean("ensemble")
+    samples["truth"] = open_data(file, group="truth")
+    samples["ERA5"] = open_data(file, group="input")
+    prediction = samples["prediction"]
     lat = prediction.lat
     lon = prediction.lon
     dx = haversine(lat[0, 0], lon[0, 0], lat[1, 0], lon[1, 0])
@@ -153,40 +172,39 @@ def main(file, output):
         _, spec_y = average_power_spectrum(data.northward_wind_10m, d=d)
         spec = spec_x + spec_y
         plt.loglog(freqs, spec, label=name)
-        plt.xlabel('Frequency (1/km)')
-        plt.ylabel('Power Spectrum')
+        plt.xlabel("Frequency (1/km)")
+        plt.ylabel("Power Spectrum")
         plt.ylim(bottom=0.1)
-    plt.title('Kinetic Energy power spectra')
+    plt.title("Kinetic Energy power spectra")
     plt.grid()
     plt.legend()
-    savefig('ke-spectra')
+    savefig("ke-spectra")
     plt.figure()
     for name, data in samples.items():
         freqs, spec = average_power_spectrum(data.temperature_2m, d=d)
         plt.loglog(freqs, spec, label=name)
-        plt.xlabel('Frequency (1/km)')
-        plt.ylabel('Power Spectrum')
+        plt.xlabel("Frequency (1/km)")
+        plt.ylabel("Power Spectrum")
         plt.ylim(bottom=0.1)
-    plt.title('T2M Power spectra')
+    plt.title("T2M Power spectra")
     plt.grid()
     plt.legend()
-    savefig('t2m-spectra')
+    savefig("t2m-spectra")
     plt.figure()
     for name, data in samples.items():
         try:
-            freqs, spec = average_power_spectrum(data.
-                maximum_radar_reflectivity, d=d)
+            freqs, spec = average_power_spectrum(data.maximum_radar_reflectivity, d=d)
         except AttributeError:
             continue
         plt.loglog(freqs, spec, label=name)
-        plt.xlabel('Frequency (1/km)')
-        plt.ylabel('Power Spectrum')
+        plt.xlabel("Frequency (1/km)")
+        plt.ylabel("Power Spectrum")
         plt.ylim(bottom=0.1)
-    plt.title('Reflectivity Power spectra')
+    plt.title("Reflectivity Power spectra")
     plt.grid()
     plt.legend()
-    savefig('reflectivity-spectra')
+    savefig("reflectivity-spectra")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     typer.run(main)
