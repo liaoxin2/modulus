@@ -238,7 +238,7 @@ class SongUNet(Module):
             )
 
         # Encoder.
-        self.enc = paddle.nn.LayerDictDict()
+        self.enc = paddle.nn.LayerDict()
         cout = in_channels
         caux = in_channels
         for level, mult in enumerate(channel_mult):
@@ -287,7 +287,7 @@ class SongUNet(Module):
         ]
 
         # Decoder.
-        self.dec = paddle.nn.LayerDictDict()
+        self.dec = paddle.nn.LayerDict()
         for level, mult in reversed(list(enumerate(channel_mult))):
             res = self.img_shape_y >> level
             if level == len(channel_mult) - 1:
@@ -346,7 +346,7 @@ class SongUNet(Module):
             emb = silu(self.map_layer1(emb))
         else:
             emb = paddle.zeros(
-                (noise_labels.shape[0], self.emb_channels), device=x.place
+                (noise_labels.shape[0], self.emb_channels)
             )
 
         # Encoder.

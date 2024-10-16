@@ -225,7 +225,7 @@ class Conv2D(paddle.nn.Layer):
             if self.up:
                 x = paddle.nn.functional.conv2d_transpose(
                     x,
-                    f.multiply(4).tile([self.in_channels, 1, 1, 1]),
+                    f.multiply(paddle.to_tensor(4, dtype='float32')).tile([self.in_channels, 1, 1, 1]),
                     groups=self.in_channels,
                     stride=2,
                     padding=f_pad,
@@ -241,7 +241,7 @@ class Conv2D(paddle.nn.Layer):
             if w is not None:
                 x = paddle.nn.functional.conv2d(x, w, padding=w_pad)
         if b is not None:
-            x = x.add_(b.reshape(1, -1, 1, 1))
+            x = x.add_(b.reshape([1, -1, 1, 1]))
         return x
 
 
@@ -284,8 +284,8 @@ class GroupNorm(paddle.nn.Layer):
         super().__init__()
         self.num_groups = min(num_groups, num_channels // min_channels_per_group)
         self.eps = eps
-        self.weight = self.create_parameter(paddle.ones(num_channels))
-        self.bias = self.create_parameter(paddle.zeros(num_channels))
+        self.weight = self.create_parameter([num_channels], dtype='float32')
+        self.bias = self.create_parameter([num_channels], dtype='float32')
 
     def forward(self, x):
         if self.training:
@@ -315,7 +315,6 @@ class GroupNorm(paddle.nn.Layer):
             bias = rearrange(self.bias, "c -> 1 c 1 1")
             x = x * weight + bias
 
-            x = x.type(dtype)
         return x
 
 
@@ -328,14 +327,12 @@ class AttentionOp(paddle.autograd.PyLayer):
 
     @staticmethod
     def forward(ctx, q, k):
-        w = (
+        w = paddle.nn.functional.softmax(
             paddle.einsum(
                 "ncq,nck->nqk",
-                q.to(paddle.float32),
-                (k / paddle.sqrt(paddle.tensor(k.shape[1]))).to(paddle.float32),
-            )
-            .softmax(axis=2)
-            .to(q.dtype)
+                q,
+                (k / paddle.sqrt(paddle.to_tensor(k.shape[1], dtype='float32'))),
+            ), axis=2
         )
         ctx.save_for_backward(q, k, w)
         return w
@@ -511,13 +508,13 @@ class UNetBlock(paddle.nn.Layer):
             q, k, v = (
                 self.qkv(self.norm2(x))
                 .reshape(
-                    x.shape[0] * self.num_heads, x.shape[1] // self.num_heads, 3, -1
+                    [x.shape[0] * self.num_heads, x.shape[1] // self.num_heads, 3, -1]
                 )
                 .unbind(2)
             )
             w = AttentionOp.apply(q, k)
             a = paddle.einsum("nqk,nck->ncq", w, v)
-            x = self.proj(a.reshape(*x.shape)).add_(x)
+            x = self.proj(a.reshape([*x.shape])).add_(x)
             x = x * self.skip_scale
         paddle.framework.core.nvprof_nvtx_pop()
         return x

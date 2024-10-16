@@ -29,7 +29,7 @@ from modulus.utils.generative import StackedRandomGenerator, time_range
 
 
 def regression_step(
-    net: paddle.nn.Layer, img_lr: paddle.Tensor, latents_shape: paddle.Size
+    net: paddle.nn.Layer, img_lr: paddle.Tensor, latents_shape: list
 ) -> paddle.Tensor:
     """
     Given a low-res input, performs a regression step to produce ensemble mean.
@@ -47,9 +47,8 @@ def regression_step(
         paddle.Tensor: Predicted output at the next time step.
     """
     # Create a tensor of zeros with the given shape and move it to the appropriate device
-    x_hat = paddle.zeros(latents_shape, dtype=paddle.float64).to(device=net.place)
-    t_hat = paddle.to_tensor(1.0, dtype=paddle.float64).to(device=net.place)
-
+    x_hat = paddle.zeros(latents_shape, dtype=paddle.float32)
+    t_hat = paddle.to_tensor(1.0, dtype=paddle.float32)
     # Perform regression on a single batch element
     with paddle.no_grad():
         x = net(x_hat[0:1], img_lr, t_hat)
@@ -117,7 +116,6 @@ def diffusion_step(  # TODO generalize the module and add defaults
                     img_shape[1],
                     img_shape[0],
                 ],
-                device=device,
             )  # .to(memory_format=paddle.channels_last)
 
             with paddle.no_grad():
