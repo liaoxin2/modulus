@@ -37,19 +37,25 @@ from helpers.train_helpers import (
 from visualdl import LogWriter
 
 
+# Train the CorrDiff model using the configurations in "conf/config_training.yaml"
 @hydra.main(version_base="1.2", config_path="conf", config_name="config_training")
 def main(cfg: DictConfig) -> None:
+
+    # Initialize distributed environment for training
     DistributedManager.initialize()
     dist = DistributedManager()
+
+    # Initialize loggers
     if dist.rank == 0:
         with LogWriter(logdir="visualdl_log") as writer:
             writer.add_scalar(tag="example_metric", step=1, value=0.5)
-    logger = PythonLogger("main")
-    logger0 = RankZeroLoggingWrapper(logger, dist)
-    OmegaConf.resolve(cfg)
+    logger = PythonLogger("main")  # General python logger
+    logger0 = RankZeroLoggingWrapper(logger, dist)  # Rank 0 logger
 
+    # Resolve and parse configs
+    OmegaConf.resolve(cfg)
     OmegaConf.set_struct(cfg.dataset, False)
-    dataset_cfg = OmegaConf.to_container(cfg.dataset)
+    dataset_cfg = OmegaConf.to_container(cfg.dataset)  # TODO needs better handling
 
     if hasattr(cfg, "validation_dataset"):
         validation_dataset_cfg = OmegaConf.to_container(cfg.validation_dataset)
@@ -60,7 +66,11 @@ def main(cfg: DictConfig) -> None:
     enable_amp = fp_optimizations.startswith("amp")
     amp_dtype = "float16" if fp_optimizations == "amp-fp16" else "bfloat16"
     logger.info(f"Saving the outputs in {os.getcwd()}")
+
+    # Set seeds and configure CUDA and cuDNN settings to ensure consistent precision
     set_seed(dist.rank)
+
+    # Instantiate the dataset
     data_loader_kwargs = {
         "pin_memory": True,
         "num_workers": cfg.training.perf.dataloader_workers,
@@ -79,13 +89,16 @@ def main(cfg: DictConfig) -> None:
         seed=0,
         validation_dataset_cfg=validation_dataset_cfg,
     )
-    test_data = dataset_iterator
+
+    # Parse image configuration & update model args
     dataset_channels = len(dataset.input_channels())
     img_in_channels = dataset_channels
     img_shape = dataset.image_shape()
     img_out_channels = len(dataset.output_channels())
     if cfg.model.hr_mean_conditioning:
         img_in_channels += img_out_channels
+
+    # Parse the patch shape
     if cfg.model.name == "patched_diffusion":
         patch_shape_x = cfg.training.hp.patch_shape_x
         patch_shape_y = cfg.training.hp.patch_shape_y
@@ -98,16 +111,19 @@ def main(cfg: DictConfig) -> None:
         logger0.info("Patch-based training enabled")
     else:
         logger0.info("Patch-based training disabled")
+    # interpolate global channel if patch-based model is used
     if img_shape[1] != patch_shape[1]:
         img_in_channels += dataset_channels
+
+    # Instantiate the model and move to device.
     if cfg.model.name not in ("regression", "diffusion", "patched_diffusion"):
         raise ValueError("Invalid model")
-    model_args = {
+    model_args = {  # default parameters for all networks
         "img_out_channels": img_out_channels,
         "img_resolution": list(img_shape),
         "use_fp16": fp16,
     }
-    standard_model_cfgs = {
+    standard_model_cfgs = {  # default parameters for different network types
         "regression": {
             "img_channels": 4,
             "N_grid_channels": 4,
@@ -127,12 +143,12 @@ def main(cfg: DictConfig) -> None:
     model_args.update(standard_model_cfgs[cfg.model.name])
     if hasattr(cfg.model, "model_args"):
         model_args.update(OmegaConf.to_container(cfg.model.model_args))
-    if cfg.model.name == "regression":
+    if cfg.model.name == "regression":  # override defaults from config file
         model = UNet(
             img_in_channels=img_in_channels + model_args["N_grid_channels"],
             **model_args,
         )
-    else:
+    else:  # diffusion or patched diffusion
         model = EDMPrecondSR(
             img_in_channels=img_in_channels + model_args["N_grid_channels"],
             **model_args,
@@ -140,6 +156,8 @@ def main(cfg: DictConfig) -> None:
     model.train()
     for param in model.parameters():
         param.stop_gradient = False
+
+    # Enable distributed data parallel if applicable
     if dist.world_size > 1:
         model = torch.nn.parallel.DistributedDataParallel(
             model,
@@ -148,6 +166,8 @@ def main(cfg: DictConfig) -> None:
             output_device=dist.place,
             find_unused_parameters=dist.find_unused_parameters,
         )
+
+    # Load the regression checkpoint if applicable
     if hasattr(cfg.training.io, "regression_checkpoint_path"):
         regression_checkpoint_path = to_absolute_path(
             cfg.training.io.regression_checkpoint_path
@@ -161,6 +181,8 @@ def main(cfg: DictConfig) -> None:
         out_1.stop_gradient = not False
         out_1.to(dist.place)
         logger0.success("Loaded the pre-trained regression model")
+
+    # Instantiate the loss function
     patch_num = getattr(cfg.training.hp, "patch_num", 1)
     if cfg.model.name in ("diffusion", "patched_diffusion"):
         loss_fn = ResLoss(
@@ -174,6 +196,8 @@ def main(cfg: DictConfig) -> None:
         )
     elif cfg.model.name == "regression":
         loss_fn = RegressionLoss()
+
+    # Instantiate the optimizer
     optimizer = paddle.optimizer.Adam(
         parameters=model.parameters(),
         learning_rate=cfg.training.hp.lr,
@@ -182,13 +206,20 @@ def main(cfg: DictConfig) -> None:
         beta2=[0.9, 0.999][1],
         weight_decay=0.0,
     )
+
+    # Record the current time to measure the duration of subsequent operations.
     start_time = time.time()
+
+    # Compute the number of required gradient accumulation rounds
+    # It is automatically used if batch_size_per_gpu * dist.world_size < total_batch_size
     batch_gpu_total, num_accumulation_rounds = compute_num_accumulation_rounds(
         cfg.training.hp.total_batch_size,
         cfg.training.hp.batch_size_per_gpu,
         dist.world_size,
     )
     logger0.info(f"Using {num_accumulation_rounds} gradient accumulation rounds")
+
+    ## Resume training from previous checkpoints if exists
     if dist.world_size > 1:
         paddle.distributed.barrier()
     try:
@@ -200,11 +231,17 @@ def main(cfg: DictConfig) -> None:
         )
     except:
         cur_nimg = 0
+
+    ############################################################################
+    #                            MAIN TRAINING LOOP                            #
+    ############################################################################
+
     logger0.info(f"Training for {cfg.training.hp.training_duration} images...")
     done = False
     while not done:
         tick_start_nimg = cur_nimg
         tick_start_time = time.time()
+        # Compute & accumulate gradients
         optimizer.clear_gradients(set_to_zero=not True)
         loss_accum = 0
         for _ in range(num_accumulation_rounds):
@@ -223,6 +260,7 @@ def main(cfg: DictConfig) -> None:
             loss = loss.sum() / batch_gpu_total
             loss_accum += loss / num_accumulation_rounds
             loss.backward()
+
         loss_sum = paddle.to_tensor(data=[loss_accum], place=dist.place)
         if dist.world_size > 1:
             paddle.distributed.barrier()
@@ -232,7 +270,9 @@ def main(cfg: DictConfig) -> None:
         average_loss = (loss_sum / dist.world_size).cpu().item()
         if dist.rank == 0:
             writer.add_scalar("training_loss", average_loss, cur_nimg)
-        lr_rampup = cfg.training.hp.lr_rampup
+
+        # Update weights.
+        lr_rampup = cfg.training.hp.lr_rampup  # ramp up the learning rate
         for g in optimizer.param_groups:
             if lr_rampup > 0:
                 g["lr"] = cfg.training.hp.lr * min(cur_nimg / lr_rampup, 1)
@@ -244,8 +284,11 @@ def main(cfg: DictConfig) -> None:
             model, grad_clip_threshold=cfg.training.hp.grad_clip_threshold
         )
         optimizer.step()
+
         cur_nimg += cfg.training.hp.total_batch_size
         done = cur_nimg >= cfg.training.hp.training_duration
+
+        # Validation
         if validation_dataset_iterator is not None:
             valid_loss_accum = 0
             if is_time_for_periodic_task(
@@ -260,6 +303,7 @@ def main(cfg: DictConfig) -> None:
                         img_clean_valid, img_lr_valid, labels_valid = next(
                             validation_dataset_iterator
                         )
+
                         img_clean_valid = (
                             img_clean_valid.to(dist.place).to("float32").contiguous()
                         )
@@ -291,6 +335,7 @@ def main(cfg: DictConfig) -> None:
                         writer.add_scalar(
                             "validation_loss", average_valid_loss, cur_nimg
                         )
+
         if is_time_for_periodic_task(
             cur_nimg,
             cfg.training.io.print_progress_freq,
@@ -299,6 +344,7 @@ def main(cfg: DictConfig) -> None:
             dist.rank,
             rank_0_only=True,
         ):
+            # Print stats if we crossed the printing threshold with this batch
             tick_end_time = time.time()
             fields = []
             fields += [f"samples {cur_nimg:<9.1f}"]
@@ -320,6 +366,8 @@ def main(cfg: DictConfig) -> None:
             ]
             logger0.info(" ".join(fields))
             torch.cuda.reset_peak_memory_stats()
+
+        # Save checkpoints
         if dist.world_size > 1:
             paddle.distributed.barrier()
         if is_time_for_periodic_task(
@@ -336,6 +384,8 @@ def main(cfg: DictConfig) -> None:
                 optimizer=optimizer,
                 epoch=cur_nimg,
             )
+
+    # Done.
     logger0.info("Training Completed.")
 
 

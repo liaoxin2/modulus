@@ -78,6 +78,7 @@ def handle_and_clip_gradients(model, grad_clip_threshold=None):
     - model (torch.nn.Module): The model whose gradients need to be processed.
     - grad_clip_threshold (float, optional): The threshold for gradient clipping. If None, no clipping is performed.
     """
+    # Replace NaNs and infinities in gradients
     for param in model.parameters():
         if param.grad is not None:
             paddle.assign(
@@ -86,6 +87,8 @@ def handle_and_clip_gradients(model, grad_clip_threshold=None):
                 ),
                 output=param.grad,
             )
+
+    # Clip gradients if a threshold is provided
     if grad_clip_threshold is not None:
         paddle.nn.utils.clip_grad_norm_(
             parameters=model.parameters(), max_norm=grad_clip_threshold
@@ -103,7 +106,7 @@ def is_time_for_periodic_task(
     """Should we perform a task that is done every `freq` samples?"""
     if rank_0_only and rank != 0:
         return False
-    elif done:
+    elif done:  # Run periodic tasks also at the end of training
         return True
     else:
         return cur_nimg % freq < batch_size

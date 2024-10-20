@@ -15,12 +15,16 @@
 # limitations under the License.
 
 import paddle
+
 from typing import Iterable, Tuple, Union
 import copy
+
 from modulus.utils.generative import InfiniteSampler
 from modulus.distributed import DistributedManager
+
 from . import base, cwb, hrrrmini
 
+# this maps all known dataset types to the corresponding init function
 known_datasets = {"cwb": cwb.get_zarr_dataset, "hrrr_mini": hrrrmini.HRRRMiniDataset}
 
 
@@ -49,6 +53,7 @@ def init_train_valid_datasets_from_config(
     Returns:
     - Tuple[base.DownscalingDataset, Iterable, Optional[base.DownscalingDataset], Optional[Iterable]]: A tuple containing the training dataset and iterator, and optionally the validation dataset and iterator if train_test_split is True.
     """
+
     config = copy.deepcopy(dataset_cfg)
 
     train_test_split = config.pop("train_test_split", True)
@@ -64,6 +69,7 @@ def init_train_valid_datasets_from_config(
         )
     else:
         valid_dataset = valid_dataset_iter = None
+
     return dataset, dataset_iter, valid_dataset, valid_dataset_iter
 
 
@@ -76,15 +82,19 @@ def init_dataset_from_config(
     dataset_cfg = copy.deepcopy(dataset_cfg)
     dataset_type = dataset_cfg.pop("type", "cwb")
     if "train_test_split" in dataset_cfg:
+        # handled by init_train_valid_datasets_from_config
         del dataset_cfg["train_test_split"]
     dataset_init_func = known_datasets[dataset_type]
+
     dataset_obj = dataset_init_func(**dataset_cfg)
     if dataloader_cfg is None:
         dataloader_cfg = {}
+
     dist = DistributedManager()
     dataset_sampler = InfiniteSampler(
         dataset=dataset_obj, rank=dist.rank, num_replicas=dist.world_size, seed=seed
     )
+
     dataset_iterator = iter(
         paddle.io.DataLoader(
             dataset=dataset_obj,
@@ -92,4 +102,5 @@ def init_dataset_from_config(
             worker_init_fn=None,
         )
     )
+
     return dataset_obj, dataset_iterator

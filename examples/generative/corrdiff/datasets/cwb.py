@@ -15,13 +15,16 @@
 # limitations under the License.
 
 """Streaming images and labels from datasets created with dataset_tool.py."""
+
 import logging
 import random
+
 import cftime
 import cv2
 from hydra.utils import to_absolute_path
 import numpy as np
 import zarr
+
 from .base import ChannelMetadata, DownscalingDataset
 from .img_utils import reshape_fields
 from .norm import denormalize, normalize
@@ -39,9 +42,11 @@ def get_target_normalizations_v2(group):
     center = group["cwb_center"]
     scale = group["cwb_scale"]
     variable = group["cwb_variable"]
+
     center = np.where(variable == "maximum_radar_reflectivity", 25.0, center)
     center = np.where(variable == "eastward_wind_10m", 0.0, center)
     center = np.where(variable == "northward_wind_10m", 0, center)
+
     scale = np.where(variable == "maximum_radar_reflectivity", 25.0, scale)
     scale = np.where(variable == "eastward_wind_10m", 20.0, scale)
     scale = np.where(variable == "northward_wind_10m", 20.0, scale)
@@ -62,6 +67,8 @@ class _ZarrDataset(DownscalingDataset):
         self.path = path
         self.group = zarr.open_consolidated(path)
         self.get_target_normalization = get_target_normalization
+
+        # valid indices
         cwb_valid = self.group["cwb_valid"]
         era5_valid = self.group["era5_valid"]
         if not (
@@ -72,7 +79,9 @@ class _ZarrDataset(DownscalingDataset):
             raise ValueError("Invalid dataset shape")
         era5_all_channels_valid = np.all(era5_valid, axis=-1)
         valid_times = cwb_valid & era5_all_channels_valid
+        # need to cast to bool since cwb_valis is stored as an int8 type in zarr.
         self.valid_times = valid_times != 0
+
         logger.info("Number of valid times: %d", len(self))
         logger.info("input_channels:%s", self.input_channels())
         logger.info("output_channels:%s", self.output_channels())
@@ -89,8 +98,10 @@ class _ZarrDataset(DownscalingDataset):
         target = self.group["cwb"][idx_to_load]
         input = self.group["era5"][idx_to_load]
         label = 0
+
         target = self.normalize_output(target[None, ...])[0]
         input = self.normalize_input(input[None, ...])[0]
+
         return target, input, label
 
     def longitude(self):
@@ -120,6 +131,7 @@ class _ZarrDataset(DownscalingDataset):
 
     def _read_time(self):
         """The vector of time coordinate has length (self)"""
+
         return cftime.num2date(
             self.group["time"], units=self.group["time"].attrs["units"]
         )
@@ -353,6 +365,7 @@ class ZarrDataset(DownscalingDataset):
             )
         else:
             self._dataset = dataset
+
         self.train = train
         self.img_shape_x = img_shape_x
         self.img_shape_y = img_shape_y
@@ -380,14 +393,20 @@ class ZarrDataset(DownscalingDataset):
 
     def __getitem__(self, idx):
         target, input, _ = self._dataset[idx]
+        # crop and downsamples
+        # rolling
         if self.train and self.roll:
             y_roll = random.randint(0, self.img_shape_y)
         else:
             y_roll = 0
+
+        # channels
         input = input[self.in_channels, :, :]
         target = target[self.out_channels, :, :]
+
         if self.ds_factor > 1:
             target = self._create_lowres_(target, factor=self.ds_factor)
+
         reshape_args = (
             y_roll,
             self.train,
@@ -403,8 +422,17 @@ class ZarrDataset(DownscalingDataset):
             self.normalization,
             self.roll,
         )
-        input = reshape_fields(input, "inp", *reshape_args, normalize=False)
-        target = reshape_fields(target, "tar", *reshape_args, normalize=False)
+        # SR
+        input = reshape_fields(
+            input,
+            "inp",
+            *reshape_args,
+            normalize=False,
+        )  # 3x720x1440
+        target = reshape_fields(
+            target, "tar", *reshape_args, normalize=False
+        )  # 3x720x1440
+
         return target, input, idx
 
     def input_channels(self):
@@ -462,18 +490,24 @@ class ZarrDataset(DownscalingDataset):
         return self._dataset.denormalize_output(x, channels=self.out_channels)
 
     def _create_highres_(self, x, shape):
+        # downsample the high res imag
         x = x.transpose(1, 2, 0)
-        x = cv2.resize(x, (shape[0], shape[1]), interpolation=cv2.INTER_CUBIC)
-        x = x.transpose(2, 0, 1)
+        # upsample with bicubic interpolation to bring the image to the nominal size
+        x = cv2.resize(
+            x, (shape[0], shape[1]), interpolation=cv2.INTER_CUBIC
+        )  # 32x32x3
+        x = x.transpose(2, 0, 1)  # 3x32x32
         return x
 
     def _create_lowres_(self, x, factor=4):
+        # downsample the high res imag
         x = x.transpose(1, 2, 0)
-        x = x[::factor, ::factor, :]
+        x = x[::factor, ::factor, :]  # 8x8x3  #subsample
+        # upsample with bicubic interpolation to bring the image to the nominal size
         x = cv2.resize(
             x, (x.shape[1] * factor, x.shape[0] * factor), interpolation=cv2.INTER_CUBIC
-        )
-        x = x.transpose(2, 0, 1)
+        )  # 32x32x3
+        x = x.transpose(2, 0, 1)  # 3x32x32
         return x
 
 

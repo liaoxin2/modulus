@@ -30,6 +30,7 @@ from modulus import Module
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from einops import rearrange
+
 from hydra.utils import to_absolute_path
 from modulus.utils.generative import deterministic_sampler, stochastic_sampler
 from modulus.models.diffusion.preconditioning import EDMPrecondSR
@@ -40,6 +41,7 @@ from modulus.utils.corrdiff import (
     regression_step,
     diffusion_step,
 )
+
 from helpers.generate_helpers import get_dataset_and_sampler, save_images
 from helpers.train_helpers import set_patch_shape
 
@@ -56,7 +58,7 @@ def main(cfg: DictConfig) -> None:
     device = dist.device
 
     # Initialize logger
-    logger = PythonLogger("generate")
+    logger = PythonLogger("generate")  # General python logger
     logger0 = RankZeroLoggingWrapper(logger, dist)
     logger.file_logging("generate.log")
 
@@ -86,6 +88,8 @@ def main(cfg: DictConfig) -> None:
     dataset, sampler = get_dataset_and_sampler(dataset_cfg=dataset_cfg, times=times)
     img_shape = dataset.image_shape()
     img_out_channels = len(dataset.output_channels())
+
+    # Parse the patch shape
     if hasattr(cfg, "training.hp.patch_shape_x"):
         patch_shape_x = cfg.training.hp.patch_shape_x
     else:
@@ -100,6 +104,8 @@ def main(cfg: DictConfig) -> None:
         logger0.info("Patch-based training enabled")
     else:
         logger0.info("Patch-based training disabled")
+
+    # Parse the inference mode
     if cfg.generation.inference_mode == "regression":
         load_net_reg, load_net_res = True, False
     elif cfg.generation.inference_mode == "diffusion":
@@ -108,6 +114,8 @@ def main(cfg: DictConfig) -> None:
         load_net_reg, load_net_res = True, True
     else:
         raise ValueError(f"Invalid inference mode {cfg.generation.inference_mode}")
+
+    # Load diffusion network, move to device, change precision
     if load_net_res:
         res_ckpt_filename = cfg.generation.io.res_ckpt_filename
         logger0.info(f'Loading residual network from "{res_ckpt_filename}"...')
@@ -126,6 +134,8 @@ def main(cfg: DictConfig) -> None:
             net_res.use_fp16 = True
     else:
         net_res = None
+
+    # load regression network, move to device, change precision
     if load_net_reg:
         reg_ckpt_filename = cfg.generation.io.reg_ckpt_filename
         logger0.info(f'Loading network from "{reg_ckpt_filename}"...')
@@ -145,6 +155,7 @@ def main(cfg: DictConfig) -> None:
     else:
         net_reg = None
 
+    # Partially instantiate the sampler based on the configs
     if cfg.sampler.type == "deterministic":
         if cfg.generation.hr_mean_conditioning:
             raise NotImplementedError(
@@ -166,6 +177,7 @@ def main(cfg: DictConfig) -> None:
     else:
         raise ValueError(f"Unknown sampling method {cfg.sampling.type}")
 
+    # Main generation definition
     def generate_fn():
         img_shape_y, img_shape_x = img_shape
         with nvtx.annotate("generate_fn", color="green"):
@@ -181,6 +193,7 @@ def main(cfg: DictConfig) -> None:
                 )
                 paddle.framework.core.nvprof_nvtx_pop()
             # image_lr_patch = paddle.transpose(image_lr_patch, perm=[0, 3, 1, 2])
+
             if net_reg:
                 with nvtx.annotate("regression_model", color="yellow"):
                     image_reg = regression_step(
@@ -219,6 +232,7 @@ def main(cfg: DictConfig) -> None:
                 image_out = image_res
             else:
                 image_out = image_reg + image_res
+
             if cfg.generation.sample_res != "full":
                 image_out = rearrange(
                     image_out,
@@ -226,6 +240,8 @@ def main(cfg: DictConfig) -> None:
                     h1=img_shape_y // patch_shape[0],
                     w1=img_shape_x // patch_shape[1],
                 )
+
+            # Gather tensors on rank 0
             if dist.world_size > 1:
                 if dist.rank == 0:
                     gathered_tensors = [
@@ -234,12 +250,14 @@ def main(cfg: DictConfig) -> None:
                     ]
                 else:
                     gathered_tensors = None
+
                 paddle.distributed.barrier()
                 paddle.distributed.gather(
                     tensor=image_out,
                     gather_list=gathered_tensors if dist.rank == 0 else None,
                     dst=0,
                 )
+
                 if dist.rank == 0:
                     return paddle.concat(x=gathered_tensors)
                 else:
@@ -247,12 +265,18 @@ def main(cfg: DictConfig) -> None:
             else:
                 return image_out
 
+    # generate images
     logger0.info("Generating images...")
     batch_size = 1
     warmup_steps = min(len(times), 2)
+    # Generates model predictions from the input data using the specified
+    # `generate_fn`, and save the predictions to the provided NetCDF file. It iterates
+    # through the dataset using a data loader, computes predictions, and saves them along
+    # with associated metadata.
     with nc.Dataset(f"output_{dist.rank}.nc", "w") as f:
+        # add attributes
         f.cfg = str(cfg)
-        # with paddle.profiler.profiler():
+
         data_loader = paddle.io.DataLoader(dataset=dataset, batch_size=1)
         time_index = -1
         writer = NetCDFWriter(
@@ -263,25 +287,33 @@ def main(cfg: DictConfig) -> None:
             output_channels=dataset.output_channels(),
         )
         warmup_steps = 2
+
         start = paddle.device.Event(enable_timing=True)
         end = paddle.device.Event(enable_timing=True)
+
+        # Initialize threadpool for writers
         writer_executor = ThreadPoolExecutor(
             max_workers=cfg.generation.perf.num_writer_workers
         )
         writer_threads = []
-        times = dataset.time()
 
+        times = dataset.time()
         for image_tar, image_lr, index in iter(data_loader):
             time_index += 1
             if dist.rank == 0:
                 logger0.info(f"starting index: {time_index}")
+
             if time_index == warmup_steps:
                 start.record()
+
+            # continue
             image_lr = paddle.to_tensor(image_lr, dtype="float32")
             image_tar = paddle.to_tensor(image_tar, dtype="float32")
             image_out = generate_fn()
+
             if dist.rank == 0:
                 batch_size = tuple(image_out.shape)[0]
+                # write out data in a seperate thread so we don't hold up inferencing
                 writer_threads.append(
                     writer_executor.submit(
                         save_images,
@@ -307,10 +339,13 @@ def main(cfg: DictConfig) -> None:
             logger.info(
                 f"Average time per batch element = {average_time_per_batch_element} s"
             )
+
+        # make sure all the workers are done writing
         for thread in list(writer_threads):
             thread.result()
             writer_threads.remove(thread)
         writer_executor.shutdown()
+
     logger0.info("Generation Completed.")
 
 

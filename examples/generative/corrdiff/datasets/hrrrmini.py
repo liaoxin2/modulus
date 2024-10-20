@@ -18,10 +18,13 @@ import datetime
 import json
 import math
 from typing import List, Tuple, Union
+
 import numpy as np
 from numba import jit, prange
 import xarray as xr
+
 from modulus.utils.generative import convert_datetime_to_cftime
+
 from .base import ChannelMetadata, DownscalingDataset
 
 
@@ -36,6 +39,7 @@ class HRRRMiniDataset(DownscalingDataset):
         output_variables: Union[List[str], None] = None,
         invariant_variables: Union[List[str], None] = ("elev_mean", "lsm_mean"),
     ):
+        # load data
         self.input, self.input_variables = _load_dataset(
             data_path, "input", input_variables
         )
@@ -45,11 +49,16 @@ class HRRRMiniDataset(DownscalingDataset):
         self.invariants, self.invariant_variables = _load_dataset(
             data_path, "invariant", invariant_variables, stack_axis=0
         )
+
+        # load temporal and spatial coordinates
         with xr.open_dataset(data_path) as ds:
             self.times = np.array(ds["time"])
             self.coords = np.array(ds["coord"])
+
         self.img_shape = self.output.shape[-2:]
         self.upsample_factor = self.output.shape[-1] // self.input.shape[-1]
+
+        # load normalization stats
         with open(stats_path, "r") as f:
             stats = json.load(f)
         input_mean, input_std = _load_stats(stats, self.input_variables, "input")
@@ -63,10 +72,14 @@ class HRRRMiniDataset(DownscalingDataset):
     def __getitem__(self, idx):
         """Return the data sample (output, input, 0) at index idx."""
         x = self.upsample(self.input[idx].copy())
+
+        # add invariants to input
         i, j = self.coords[idx]
         inv = self.invariants[:, i : i + self.img_shape[0], j : j + self.img_shape[1]]
         x = np.concatenate([x, inv], axis=0)
+
         y = self.output[idx]
+
         x = self.normalize_input(x)
         y = self.normalize_output(y)
         return y, x, 0
@@ -169,6 +182,7 @@ def _zoom_extrapolate(x, y, factor):
                 jx0 = int(math.floor(jx))
                 jx0 = max(0, min(jx0, x.shape[2] - 2))
                 jx1 = jx0 + 1
+
                 x00 = x[k, ix0, jx0]
                 x01 = x[k, ix0, jx1]
                 x10 = x[k, ix1, jx0]
