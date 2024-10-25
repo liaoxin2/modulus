@@ -25,15 +25,16 @@ def get_dataset_and_sampler(dataset_cfg, times):
     Get a dataset and sampler for generation.
     """
     (dataset, _) = init_dataset_from_config(dataset_cfg, batch_size=1)
-    plot_times = [
-        convert_datetime_to_cftime(
-            datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%S")
-        )
-        for time in times
-    ]
-    all_times = dataset.time()
-    time_indices = [all_times.index(t) for t in plot_times]
-    sampler = time_indices
+
+    # plot_times = [
+    #     convert_datetime_to_cftime(
+    #         datetime.datetime.strptime(time, "%Y-%m-%dT%H:%M:%S")
+    #     )
+    #     for time in times
+    # ]
+    # all_times = dataset.time()
+    # time_indices = [all_times.index(t) for t in plot_times]
+    sampler = [0, 1, 2, 3, 4]
 
     return dataset, sampler
 
@@ -70,11 +71,11 @@ def save_images(
     # weather sub-plot
     image_lr2 = image_lr[0].unsqueeze(0)
     image_lr2 = image_lr2.cpu().numpy()
-    image_lr2 = dataset.denormalize_input(image_lr2)
+    #image_lr2 = dataset.denormalize_input(image_lr2)
 
     image_tar2 = image_tar[0].unsqueeze(0)
     image_tar2 = image_tar2.cpu().numpy()
-    image_tar2 = dataset.denormalize_output(image_tar2)
+    #image_tar2 = dataset.denormalize_output(image_tar2)
 
     # some runtime assertions
     if image_tar2.ndim != 4:
@@ -87,13 +88,13 @@ def save_images(
 
         # Denormalize the input and outputs
         image_out2 = image_out2.cpu().numpy()
-        image_out2 = dataset.denormalize_output(image_out2)
+        #image_out2 = dataset.denormalize_output(image_out2)
 
         time = times[t_index]
-        writer.write_time(time_index, time)
+        #writer.write_time(time_index, time)
         for channel_idx in range(image_out2.shape[1]):
-            info = dataset.output_channels()[channel_idx]
-            channel_name = info.name + info.level
+            info = ['resu1','resv1'][channel_idx]
+            channel_name = info #info.name + info.level
             truth = image_tar2[0, channel_idx]
 
             writer.write_truth(channel_name, time_index, truth)
@@ -101,10 +102,10 @@ def save_images(
                 channel_name, time_index, idx, image_out2[0, channel_idx]
             )
 
-        input_channel_info = dataset.input_channels()
+        input_channel_info = ['resu1','resv1','respsf','resrh2','reshgt','resv500','resu500','resv200','resu200','restmp2','restmp925','restmp850','restmp700','restmp500']
         for channel_idx in range(len(input_channel_info)):
             info = input_channel_info[channel_idx]
-            channel_name = info.name + info.level
+            channel_name = info #info.name + info.level
             writer.write_input(channel_name, time_index, image_lr2[0, channel_idx])
             if channel_idx == image_lr2.shape[1] - 1:
                 break

@@ -21,11 +21,11 @@ import torch
 from modulus.utils.generative import InfiniteSampler
 from modulus.distributed import DistributedManager
 
-from . import base, cwb, hrrrmini
+from . import base, cwb, npy
 
 
 # this maps all known dataset types to the corresponding init function
-known_datasets = {"cwb": cwb.get_zarr_dataset, "hrrr_mini": hrrrmini.HRRRMiniDataset}
+known_datasets = {"cwb": cwb.get_zarr_dataset, 'npy': npy.NpyDataset}
 
 
 def init_train_valid_datasets_from_config(
@@ -34,7 +34,7 @@ def init_train_valid_datasets_from_config(
     batch_size: int = 1,
     seed: int = 0,
     validation_dataset_cfg: Union[dict, None] = None,
-    train_test_split: bool = True,
+    train_test_split: bool = False,
 ) -> Tuple[
     base.DownscalingDataset,
     Iterable,
@@ -54,20 +54,19 @@ def init_train_valid_datasets_from_config(
     Returns:
     - Tuple[base.DownscalingDataset, Iterable, Optional[base.DownscalingDataset], Optional[Iterable]]: A tuple containing the training dataset and iterator, and optionally the validation dataset and iterator if train_test_split is True.
     """
-
     config = copy.deepcopy(dataset_cfg)
-    (dataset, dataset_iter) = init_dataset_from_config(
+    (dataset, dataset_iter, valid_dataset, valid_dataset_iter) = init_dataset_from_config(
         config, dataloader_cfg, batch_size=batch_size, seed=seed
     )
-    if train_test_split:
-        valid_dataset_cfg = copy.deepcopy(config)
-        if validation_dataset_cfg:
-            valid_dataset_cfg.update(validation_dataset_cfg)
-        (valid_dataset, valid_dataset_iter) = init_dataset_from_config(
-            valid_dataset_cfg, dataloader_cfg, batch_size=batch_size, seed=seed
-        )
-    else:
-        valid_dataset = valid_dataset_iter = None
+    # if train_test_split:
+    #     valid_dataset_cfg = copy.deepcopy(config)
+    #     if validation_dataset_cfg:
+    #         valid_dataset_cfg.update(validation_dataset_cfg)
+    #     (valid_dataset, valid_dataset_iter) = init_dataset_from_config(
+    #         valid_dataset_cfg, dataloader_cfg, batch_size=batch_size, seed=seed
+    #     )
+    # else:
+    #     valid_dataset = valid_dataset_iter = None
 
     return dataset, dataset_iter, valid_dataset, valid_dataset_iter
 
@@ -78,30 +77,72 @@ def init_dataset_from_config(
     batch_size: int = 1,
     seed: int = 0,
 ) -> Tuple[base.DownscalingDataset, Iterable]:
+    
     dataset_cfg = copy.deepcopy(dataset_cfg)
     dataset_type = dataset_cfg.pop("type", "cwb")
     if "train_test_split" in dataset_cfg:
         # handled by init_train_valid_datasets_from_config
         del dataset_cfg["train_test_split"]
+    
     dataset_init_func = known_datasets[dataset_type]
-
+    
     dataset_obj = dataset_init_func(**dataset_cfg)
-    if dataloader_cfg is None:
-        dataloader_cfg = {}
 
-    dist = DistributedManager()
-    dataset_sampler = InfiniteSampler(
-        dataset=dataset_obj, rank=dist.rank, num_replicas=dist.world_size, seed=seed
-    )
+    if 'vaild_size' in dataset_cfg:
+        val_size = int(len(dataset_obj) * dataset_cfg['vaild_size'])
+        train_size = len(dataset_obj) - val_size
+        train_dataset, val_dataset = torch.utils.data.random_split(dataset_obj, [train_size, val_size])
 
-    dataset_iterator = iter(
-        torch.utils.data.DataLoader(
-            dataset=dataset_obj,
-            sampler=dataset_sampler,
-            batch_size=batch_size,
-            worker_init_fn=None,
-            **dataloader_cfg,
+        if dataloader_cfg is None:
+            dataloader_cfg = {}
+
+        dist = DistributedManager()
+        dataset_sampler = InfiniteSampler(
+            dataset=train_dataset, rank=dist.rank, num_replicas=dist.world_size, seed=seed
         )
-    )
+        val_sampler = InfiniteSampler(
+            dataset=val_dataset, rank=dist.rank, num_replicas=dist.world_size, seed=seed
+        )
 
-    return (dataset_obj, dataset_iterator)
+        dataset_iterator = iter(
+            torch.utils.data.DataLoader(
+                dataset=train_dataset,
+                sampler=dataset_sampler,
+                batch_size=batch_size,
+                worker_init_fn=None,
+                **dataloader_cfg,
+            )
+        )
+
+        val_iterator = iter(
+            torch.utils.data.DataLoader(
+                dataset=val_dataset,
+                sampler=val_sampler,
+                batch_size=batch_size,
+                worker_init_fn=None,
+                **dataloader_cfg,
+            )
+        )
+
+        return (train_dataset, dataset_iterator, val_dataset, val_iterator)
+    else:
+        if dataloader_cfg is None:
+            dataloader_cfg = {}
+
+        dist = DistributedManager()
+        dataset_sampler = InfiniteSampler(
+            dataset=dataset_obj, rank=dist.rank, num_replicas=dist.world_size, seed=seed
+        )
+        
+        dataset_iterator = iter(
+            torch.utils.data.DataLoader(
+                dataset=dataset_obj,
+                sampler=dataset_sampler,
+                batch_size=batch_size,
+                worker_init_fn=None,
+                **dataloader_cfg,
+            )
+        )
+
+        return (dataset_obj, dataset_iterator)
+

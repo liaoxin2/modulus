@@ -19,13 +19,12 @@ hydra:
     chdir: true
     name: regression  # choose from [regression, diffusion, patched_diffusion]
   run:
-    dir: ./outputs/${hydra:job.name}
-
+    dir: ./outputs/${hydra:job.name}/regression
 # Get defaults
 defaults:
 
   # Dataset
-  - dataset/cwb_train
+  - dataset/npy
 
   # Model
   - model/corrdiff_regression
@@ -38,4 +37,4 @@ defaults:
   #- training/corrdiff_patched_diffusion
 
   # Validation (comment out to disable validation)
-  - validation/cwb
+  - validation/npy

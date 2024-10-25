@@ -86,9 +86,8 @@ def main(cfg: DictConfig) -> None:
     # Create dataset object
     dataset_cfg = OmegaConf.to_container(cfg.dataset)
     dataset, sampler = get_dataset_and_sampler(dataset_cfg=dataset_cfg, times=times)
-    img_shape = dataset.image_shape()
-    img_out_channels = len(dataset.output_channels())
-
+    img_shape = [dataset_cfg['img_shape_x'],dataset_cfg['img_shape_y']]
+    img_out_channels = dataset_cfg['out_channels']
     # Parse the patch shape
     if hasattr(cfg.generation, "patch_shape_x"):  # TODO better config handling
         patch_shape_x = cfg.generation.patch_shape_x
@@ -282,10 +281,10 @@ def main(cfg: DictConfig) -> None:
             if dist.rank == 0:
                 writer = NetCDFWriter(
                     f,
-                    lat=dataset.latitude(),
-                    lon=dataset.longitude(),
-                    input_channels=dataset.input_channels(),
-                    output_channels=dataset.output_channels(),
+                    lat=200,
+                    lon=266,
+                    input_channels=['resu1','resv1','respsf','resrh2','reshgt','resv500','resu500','resv200','resu200','restmp2','restmp925','restmp850','restmp700','restmp500'],
+                    output_channels=['resu1','resv1'],
                 )
 
                 # Initialize threadpool for writers
@@ -297,7 +296,7 @@ def main(cfg: DictConfig) -> None:
             start = torch.cuda.Event(enable_timing=True)
             end = torch.cuda.Event(enable_timing=True)
 
-            times = dataset.time()
+            times = [1,2,3,4,5,6]
             for image_tar, image_lr, index in iter(data_loader):
                 time_index += 1
                 if dist.rank == 0:
@@ -311,8 +310,8 @@ def main(cfg: DictConfig) -> None:
                     image_lr.to(device=device)
                     .to(torch.float32)
                     .to(memory_format=torch.channels_last)
-                )
-                image_tar = image_tar.to(device=device).to(torch.float32)
+                ).permute(0, 3, 1, 2)
+                image_tar = image_tar.to(device=device).to(torch.float32).permute(0, 3, 1, 2)
                 image_out = generate_fn()
 
                 if dist.rank == 0:

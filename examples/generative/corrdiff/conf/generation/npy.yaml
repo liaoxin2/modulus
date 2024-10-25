@@ -18,13 +18,8 @@ num_ensembles: 64
   # Number of ensembles to generate per input
 seed_batch_size: 1
   # Size of the batched inference
-inference_mode: all
+inference_mode: regression
   # Choose between "all" (regression + diffusion), "regression" or "diffusion"
-patch_size: 448
-patch_shape_x: 448
-patch_shape_y: 448
-  # Patch size. Patch-based sampling will be utilized if these dimensions differ from 
-  # img_shape_x and img_shape_y
 overlap_pixels: 0
   # Number of overlapping pixels between adjacent patches
 boundary_pixels: 0
@@ -57,7 +52,7 @@ perf:
     # To support multiple workers a threadsafe version of the netCDF library must be used
 
 io:
-  res_ckpt_filename: corrdiff_inference_package/checkpoints/diffusion.mdlus
+  res_ckpt_filename: /public/home/huanggang/Baidu/AIWRF代码/corrdiff/outputs/regression/regression/checkpoints_regression/UNet.0.680192.mdlus
     # Checkpoint filename for the diffusion model  
-  reg_ckpt_filename: corrdiff_inference_package/checkpoints/regression.mdlus
+  reg_ckpt_filename: /public/home/huanggang/Baidu/AIWRF代码/corrdiff/outputs/regression/regression/checkpoints_regression/UNet.0.680192.mdlus
     # Checkpoint filename for the mean predictor model

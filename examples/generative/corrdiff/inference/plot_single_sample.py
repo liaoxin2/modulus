@@ -50,7 +50,7 @@ def plot_channels(group, time_idx: int):
         sharex=True,
         sharey=True,
         constrained_layout=True,
-        figsize=(15, 15),
+        figsize=(20, 15),
     )
 
     for ch, ax in zip(sorted(group.variables), axs.flat):
@@ -98,6 +98,7 @@ def main(file, output_dir, sample):
     output_channels = list(f["prediction"].variables)
     v = f["time"]
     times = cftime.num2date(v, units=v.units, calendar=v.calendar)
+    times = [1,2,3,4,5]
 
     def plot_panel(ax, data, **kwargs):
         return ax.pcolormesh(f["lon"], f["lat"], data, cmap="RdBu_r", **kwargs)
@@ -112,7 +113,7 @@ def main(file, output_dir, sample):
             sharex=True,
             sharey=True,
             constrained_layout=True,
-            figsize=(12, 12),
+            figsize=(20, 10),
         )
         row = axs[0]
         row[0].set_title("Input")
@@ -138,6 +139,9 @@ def main(file, output_dir, sample):
             vmin, vmax = colorlimits[channel]
 
             def plot_panel(ax, data, **kwargs):
+                x = np.linspace(0,200,201)
+                y = np.linspace(0,266,267)
+                X,Y=np.meshgrid(y,x)
                 if channel == "maximum_radar_reflectivity":
                     return ax.pcolormesh(
                         f["lon"], f["lat"], data, cmap="magma", vmin=0, vmax=vmax
@@ -155,7 +159,7 @@ def main(file, output_dir, sample):
                         vmin1 = vmin
                         vmax1 = vmax
                     return ax.pcolormesh(
-                        f["lon"], f["lat"], data, cmap="RdBu_r", vmin=vmin1, vmax=vmax1
+                        X,Y, data, cmap="RdBu_r", vmin=vmin1, vmax=vmax1
                     )
 
             if x is not None:
@@ -181,11 +185,11 @@ def main(file, output_dir, sample):
             ax.set_ylabel("latitude [deg N]")
 
         time = times[idx]
-        plt.suptitle(f"Time {time.isoformat()}")
-        plt.savefig(f"{output_dir}/{time.isoformat()}.sample.png")
+        plt.suptitle(f"Time {time}")
+        plt.savefig(f"{output_dir}/{time}.sample.png")
 
         plot_channels(f["input"], idx)
-        plt.savefig(f"{output_dir}/{time.isoformat()}.input.png")
+        plt.savefig(f"{output_dir}/{time}.input.png")
 
 
 if __name__ == "__main__":

@@ -36,7 +36,6 @@ from helpers.train_helpers import (
     is_time_for_periodic_task,
 )
 
-
 # Train the CorrDiff model using the configurations in "conf/config_training.yaml"
 @hydra.main(version_base="1.2", config_path="conf", config_name="config_training")
 def main(cfg: DictConfig) -> None:
@@ -60,6 +59,7 @@ def main(cfg: DictConfig) -> None:
     else:
         train_test_split = False
         validation_dataset_cfg = None
+    
     fp_optimizations = cfg.training.perf.fp_optimizations
     fp16 = fp_optimizations == "fp16"
     enable_amp = fp_optimizations.startswith("amp")
@@ -83,6 +83,7 @@ def main(cfg: DictConfig) -> None:
         "num_workers": cfg.training.perf.dataloader_workers,
         "prefetch_factor": 2,
     }
+
     (
         dataset,
         dataset_iterator,
@@ -98,10 +99,10 @@ def main(cfg: DictConfig) -> None:
     )
 
     # Parse image configuration & update model args
-    dataset_channels = len(dataset.input_channels())
-    img_in_channels = dataset_channels
-    img_shape = dataset.image_shape()
-    img_out_channels = len(dataset.output_channels())
+    img_in_channels = dataset_cfg['in_channels']
+    img_shape = [dataset_cfg['img_shape_x'],dataset_cfg['img_shape_y']]
+    img_out_channels = dataset_cfg['out_channels']
+
     if cfg.model.hr_mean_conditioning:
         img_in_channels += img_out_channels
 
@@ -120,7 +121,7 @@ def main(cfg: DictConfig) -> None:
         logger0.info("Patch-based training disabled")
     # interpolate global channel if patch-based model is used
     if img_shape[1] != patch_shape[1]:
-        img_in_channels += dataset_channels
+        img_in_channels += img_in_channels
 
     # Instantiate the model and move to device.
     if cfg.model.name not in ("regression", "diffusion", "patched_diffusion"):
@@ -217,6 +218,7 @@ def main(cfg: DictConfig) -> None:
         cfg.training.hp.batch_size_per_gpu,
         dist.world_size,
     )
+
     batch_size_per_gpu = cfg.training.hp.batch_size_per_gpu
     logger0.info(f"Using {num_accumulation_rounds} gradient accumulation rounds")
 
@@ -252,8 +254,8 @@ def main(cfg: DictConfig) -> None:
         loss_accum = 0
         for _ in range(num_accumulation_rounds):
             img_clean, img_lr, labels = next(dataset_iterator)
-            img_clean = img_clean.to(dist.device).to(torch.float32).contiguous()
-            img_lr = img_lr.to(dist.device).to(torch.float32).contiguous()
+            img_clean = img_clean.to(dist.device).to(torch.float32).contiguous().permute(0, 3, 1, 2)
+            img_lr = img_lr.to(dist.device).to(torch.float32).contiguous().permute(0, 3, 1, 2)
             labels = labels.to(dist.device).contiguous()
             with torch.autocast("cuda", dtype=amp_dtype, enabled=enable_amp):
                 loss = loss_fn(
@@ -335,10 +337,10 @@ def main(cfg: DictConfig) -> None:
                         img_clean_valid = (
                             img_clean_valid.to(dist.device)
                             .to(torch.float32)
-                            .contiguous()
+                            .contiguous().permute(0, 3, 1, 2)
                         )
                         img_lr_valid = (
-                            img_lr_valid.to(dist.device).to(torch.float32).contiguous()
+                            img_lr_valid.to(dist.device).to(torch.float32).contiguous().permute(0, 3, 1, 2)
                         )
                         labels_valid = labels_valid.to(dist.device).contiguous()
                         loss_valid = loss_fn(
