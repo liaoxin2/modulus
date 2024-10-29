@@ -32,17 +32,14 @@ class NpyDataset(Dataset):
     """
 
     def __init__(self, data_file, labels_file, transform=None, **kwargs):
-
         self.data = np.load(data_file)
         self.labels = np.load(labels_file)
         self.transform = transform
 
     def __len__(self):
-
         return len(self.data)
 
     def __getitem__(self, idx):
-
         sample_data = self.data[idx]
         sample_label = self.labels[idx]
 
