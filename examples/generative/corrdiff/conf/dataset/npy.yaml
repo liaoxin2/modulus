@@ -14,22 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-hydra:
-  job:
-    chdir: true
-    name: generation
-  run:
-    dir: ./outputs/${hydra:job.name}
+type: npy
+data_file: /public/home/huanggang/data/lpy/GFSCOLO200266.npy
+labels_file: /public/home/huanggang/data/lpy/UV0110000.npy
+in_channels: 14
+out_channels: 2
+img_shape_x: 200
+img_shape_y: 266
+vaild_size: 0.2
 
-# Get defaults
-defaults:
-
-  # Dataset
-  - dataset/npy_generate
-
-  # Sampler
-  - sampler/stochastic
-  #- sampler/deterministic
-
-  # Generation
-  - generation/npy

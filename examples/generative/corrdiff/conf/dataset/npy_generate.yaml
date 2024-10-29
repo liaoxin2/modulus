@@ -14,22 +14,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-hydra:
-  job:
-    chdir: true
-    name: generation
-  run:
-    dir: ./outputs/${hydra:job.name}
-
-# Get defaults
-defaults:
-
-  # Dataset
-  - dataset/npy_generate
-
-  # Sampler
-  - sampler/stochastic
-  #- sampler/deterministic
-
-  # Generation
-  - generation/npy
+type: npy
+data_file: /public/home/huanggang/data/lpy/GFSCOLO2002661.npy
+labels_file: /public/home/huanggang/data/lpy/UV10110001.npy
+in_channels: 14
+out_channels: 2
+img_shape_x: 200
+img_shape_y: 266
+latitude: 200
+longitude: 266
+input_channels_name: ['resu1','resv1','respsf','resrh2','reshgt','resv500','resu500','resv200','resu200','restmp2','restmp925','restmp850','restmp700','restmp500']
+output_channels_name: ['resu1','resv1']

@@ -136,14 +136,15 @@ class NetCDFWriter:
 
     def __init__(self, f, lat, lon, input_channels, output_channels):
         self._f = f
+        self.input_channels = input_channels
+        self.output_channels = output_channels
 
         # create unlimited dimensions
         f.createDimension("time")
         f.createDimension("ensemble")
 
-        if lat.shape != lon.shape:
-            raise ValueError("lat and lon must have the same shape")
-        ny, nx = lat.shape
+        ny = lat
+        nx = lon
 
         # create lat/lon grid
         f.createDimension("x", nx)
@@ -151,12 +152,10 @@ class NetCDFWriter:
 
         v = f.createVariable("lat", "f", dimensions=("y", "x"))
         # NOTE rethink this for datasets whose samples don't have constant lat-lon.
-        v[:] = lat
         v.standard_name = "latitude"
         v.units = "degrees_north"
 
         v = f.createVariable("lon", "f", dimensions=("y", "x"))
-        v[:] = lon
         v.standard_name = "longitude"
         v.units = "degrees_east"
 
@@ -170,7 +169,7 @@ class NetCDFWriter:
         self.input_group = f.createGroup("input")
 
         for variable in output_channels:
-            name = variable.name + variable.level
+            name = variable
             self.truth_group.createVariable(name, "f", dimensions=("time", "y", "x"))
             self.prediction_group.createVariable(
                 name, "f", dimensions=("ensemble", "time", "y", "x")
@@ -179,7 +178,7 @@ class NetCDFWriter:
         # setup input data in netCDF
 
         for variable in input_channels:
-            name = variable.name + variable.level
+            name = variable
             self.input_group.createVariable(name, "f", dimensions=("time", "y", "x"))
 
     def write_input(self, channel_name, time_index, val):

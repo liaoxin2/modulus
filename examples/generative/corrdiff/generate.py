@@ -86,8 +86,8 @@ def main(cfg: DictConfig) -> None:
     # Create dataset object
     dataset_cfg = OmegaConf.to_container(cfg.dataset)
     dataset, sampler = get_dataset_and_sampler(dataset_cfg=dataset_cfg, times=times)
-    img_shape = dataset.image_shape()
-    img_out_channels = len(dataset.output_channels())
+    img_shape = [dataset_cfg["img_shape_x"], dataset_cfg["img_shape_y"]]
+    img_out_channels = dataset_cfg["out_channels"]
 
     # Parse the patch shape
     if hasattr(cfg, "training.hp.patch_shape_x"):
@@ -120,14 +120,12 @@ def main(cfg: DictConfig) -> None:
         res_ckpt_filename = cfg.generation.io.res_ckpt_filename
         logger0.info(f'Loading residual network from "{res_ckpt_filename}"...')
         with open(
-            "/workspace/workspace/modulus/examples/generative/corrdiff/corrdiff_inference_package/checkpoints/d/args.json",
+            cfg.generation.io.res_json,
             "r",
         ) as f:
             args = json.load(f)
         net_res = EDMPrecondSR(**args["__args__"])
-        model_dict = paddle.load(
-            path="/workspace/workspace/modulus/examples/generative/corrdiff/corrdiff_inference_package/checkpoints/diffusion.pdparams"
-        )
+        model_dict = paddle.load(path=regression_checkpoint_path)
         net_res.load_dict(model_dict)
         net_res.eval()
         if cfg.generation.perf.force_fp16:
@@ -140,14 +138,12 @@ def main(cfg: DictConfig) -> None:
         reg_ckpt_filename = cfg.generation.io.reg_ckpt_filename
         logger0.info(f'Loading network from "{reg_ckpt_filename}"...')
         with open(
-            "/workspace/workspace/modulus/examples/generative/corrdiff/corrdiff_inference_package/checkpoints/r/args.json",
+            cfg.generation.io.reg_json,
             "r",
         ) as f:
             args = json.load(f)
         net_reg = UNet(**args["__args__"])
-        model_dict = paddle.load(
-            path="/workspace/workspace/modulus/examples/generative/corrdiff/corrdiff_inference_package/checkpoints/regression.pdparams"
-        )
+        model_dict = paddle.load(path=reg_ckpt_filename)
         net_reg.load_dict(model_dict)
         net_reg.eval()
         if cfg.generation.perf.force_fp16:
@@ -202,8 +198,8 @@ def main(cfg: DictConfig) -> None:
                         latents_shape=(
                             cfg.generation.seed_batch_size,
                             img_out_channels,
-                            img_shape[1],
                             img_shape[0],
+                            img_shape[1],
                         ),
                     )
             if net_res:
@@ -266,27 +262,29 @@ def main(cfg: DictConfig) -> None:
                 return image_out
 
     # generate images
-    logger0.info("Generating images...")
+    output_path = getattr(cfg.generation.io, "output_filename", "corrdiff_output.nc")
+    logger0.info(f"Generating images, saving results to {output_path}...")
     batch_size = 1
     warmup_steps = min(len(times), 2)
     # Generates model predictions from the input data using the specified
     # `generate_fn`, and save the predictions to the provided NetCDF file. It iterates
     # through the dataset using a data loader, computes predictions, and saves them along
     # with associated metadata.
-    with nc.Dataset(f"output_{dist.rank}.nc", "w") as f:
+    if dist.rank == 0:
+        f = nc.Dataset(output_path, "w")
         # add attributes
         f.cfg = str(cfg)
 
-        data_loader = paddle.io.DataLoader(dataset=dataset, batch_size=1)
-        time_index = -1
+    data_loader = paddle.io.DataLoader(dataset=dataset, batch_size=1)
+    time_index = -1
+    if dist.rank == 0:
         writer = NetCDFWriter(
             f,
-            lat=dataset.latitude(),
-            lon=dataset.longitude(),
-            input_channels=dataset.input_channels(),
-            output_channels=dataset.output_channels(),
+            lat=dataset_cfg["latitude"],
+            lon=dataset_cfg["longitude"],
+            input_channels=dataset_cfg["input_channels_name"],
+            output_channels=dataset_cfg["output_channels_name"],
         )
-        warmup_steps = 2
 
         start = paddle.device.Event(enable_timing=True)
         end = paddle.device.Event(enable_timing=True)
@@ -297,55 +295,67 @@ def main(cfg: DictConfig) -> None:
         )
         writer_threads = []
 
-        times = dataset.time()
-        for image_tar, image_lr, index in iter(data_loader):
-            time_index += 1
-            if dist.rank == 0:
-                logger0.info(f"starting index: {time_index}")
+    start = paddle.device.Event(enable_timing=True)
+    end = paddle.device.Event(enable_timing=True)
 
-            if time_index == warmup_steps:
-                start.record()
-
-            # continue
-            image_lr = paddle.to_tensor(image_lr, dtype="float32")
-            image_tar = paddle.to_tensor(image_tar, dtype="float32")
-            image_out = generate_fn()
-
-            if dist.rank == 0:
-                batch_size = tuple(image_out.shape)[0]
-                # write out data in a seperate thread so we don't hold up inferencing
-                writer_threads.append(
-                    writer_executor.submit(
-                        save_images,
-                        writer,
-                        dataset,
-                        list(times),
-                        image_out.cpu(),
-                        image_tar.cpu(),
-                        image_lr.cpu(),
-                        time_index,
-                        index[0],
-                    )
-                )
-        end.record()
-        end.synchronize()
-        elapsed_time = start.elapsed_time(end) / 1000.0
-        timed_steps = time_index + 1 - warmup_steps
+    times = cfg.generation.times
+    flag = 0
+    for image_tar, image_lr, index in iter(data_loader):
+        time_index += 1
         if dist.rank == 0:
-            average_time_per_batch_element = elapsed_time / timed_steps / batch_size
-            logger.info(
-                f"Total time to run {timed_steps} and {batch_size} ensembles = {elapsed_time} s"
-            )
-            logger.info(
-                f"Average time per batch element = {average_time_per_batch_element} s"
-            )
+            logger0.info(f"starting index: {time_index}")
 
-        # make sure all the workers are done writing
+        if time_index == warmup_steps:
+            start.record()
+
+        # continue
+        image_lr = paddle.to_tensor(image_lr, dtype="float32")
+        image_lr = paddle.transpose(image_lr, perm=[0, 3, 1, 2])
+        image_tar = paddle.to_tensor(image_tar, dtype="float32")
+        image_tar = paddle.transpose(image_tar, perm=[0, 3, 1, 2])
+        image_out = generate_fn()
+
+        if dist.rank == 0:
+            batch_size = image_out.shape[0]
+            # write out data in a seperate thread so we don't hold up inferencing
+            writer_threads.append(
+                writer_executor.submit(
+                    save_images,
+                    writer,
+                    dataset,
+                    list(times),
+                    image_out.cpu(),
+                    image_tar.cpu(),
+                    image_lr.cpu(),
+                    time_index,
+                    index[0],
+                )
+            )
+        flag += 1
+        if flag == 5:
+            break
+    end.record()
+    end.synchronize()
+    elapsed_time = start.elapsed_time(end) / 1000.0
+    timed_steps = time_index + 1 - warmup_steps
+    if dist.rank == 0:
+        average_time_per_batch_element = elapsed_time / timed_steps / batch_size
+        logger.info(
+            f"Total time to run {timed_steps} and {batch_size} ensembles = {elapsed_time} s"
+        )
+        logger.info(
+            f"Average time per batch element = {average_time_per_batch_element} s"
+        )
+
+    # make sure all the workers are done writing
+    if dist.rank == 0:
         for thread in list(writer_threads):
             thread.result()
             writer_threads.remove(thread)
         writer_executor.shutdown()
 
+    if dist.rank == 0:
+        f.close()
     logger0.info("Generation Completed.")
 
 
