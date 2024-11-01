@@ -729,15 +729,9 @@ class EDMPrecondSR(Module):
         sigma_max=float("inf"),
         sigma_data=0.5,
         model_type="SongUNetPosEmbd",
+        scale_cond_input=True,
         **model_kwargs,
     ):
-        warnings.warn(
-            "EDMPrecondSR has a bug in how the conditional input is scaled "
-            "(see https://github.com/NVIDIA/modulus/issues/229). "
-            "This preconditioner is now deprecated. "
-            "Please use EDMPrecondSRV2 instead.",
-            DeprecationWarning,
-        )
         super().__init__(meta=EDMPrecondSRMetaData)
         self.img_resolution = img_resolution
         self.img_channels = img_channels
@@ -747,15 +741,37 @@ class EDMPrecondSR(Module):
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
         self.sigma_data = sigma_data
+        self.scale_cond_input = scale_cond_input
 
         model_class = getattr(network_module, model_type)
         self.model = model_class(
             img_resolution=img_resolution,
             in_channels=img_in_channels + img_out_channels,
             out_channels=img_out_channels,
-            label_dim=0,
             **model_kwargs,
         )  # TODO needs better handling
+        self.scaling_fn = self._get_scaling_fn()
+
+    def _get_scaling_fn(self):
+        if self.scale_cond_input:
+            warnings.warn(
+                "scale_cond_input=True does not properly scale the conditional input. "
+                "(see https://github.com/NVIDIA/modulus/issues/229). "
+                "This setup will be deprecated. "
+                "Please set scale_cond_input=False.",
+                DeprecationWarning,
+            )
+            return self._legacy_scaling_fn
+        else:
+            return self._scaling_fn
+
+    @staticmethod
+    def _scaling_fn(x, img_lr, c_in):
+        return paddle.concat([c_in * x, img_lr.to(x.dtype)], axis=1)
+
+    @staticmethod
+    def _legacy_scaling_fn(x, img_lr, c_in):
+        return c_in * paddle.concat([x, img_lr.to(x.dtype)], axis=1)
 
     @nvtx.annotate(message="EDMPrecondSR", color="orange")
     def forward(
@@ -767,23 +783,21 @@ class EDMPrecondSR(Module):
         **model_kwargs,
     ):
         # Concatenate input channels
-        x = paddle.concat((x, img_lr), axis=1)
-
         x = x.to(paddle.float32)
         sigma = sigma.to(paddle.float32).reshape([-1, 1, 1, 1])
-        dtype = (
-            paddle.float16
-            if (self.use_fp16 and not force_fp32 and x.place.type == "cuda")
-            else paddle.float32
-        )
 
         c_skip = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
         c_out = sigma * self.sigma_data / (sigma**2 + self.sigma_data**2).sqrt()
         c_in = 1 / (self.sigma_data**2 + sigma**2).sqrt()
         c_noise = sigma.log() / 4
 
+        if img_lr is None:
+            arg = c_in * x
+        else:
+            arg = self.scaling_fn(x, img_lr, c_in)
+
         F_x = self.model(
-            (c_in * x).to(dtype),
+            arg,
             c_noise.flatten(),
             class_labels=None,
             **model_kwargs,
@@ -794,8 +808,6 @@ class EDMPrecondSR(Module):
         #         f"Expected the dtype to be {dtype}, but got {F_x.dtype} instead."
         #     )
 
-        # Skip connection - for SR there's size mismatch bwtween input and output
-        x = x[:, 0 : self.img_out_channels, :, :]
         D_x = c_skip * x + c_out * F_x.to(paddle.float32)
         return D_x
 

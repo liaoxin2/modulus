@@ -86,8 +86,8 @@ def main(cfg: DictConfig) -> None:
     # Create dataset object
     dataset_cfg = OmegaConf.to_container(cfg.dataset)
     dataset, sampler = get_dataset_and_sampler(dataset_cfg=dataset_cfg, times=times)
-    img_shape = [dataset_cfg["img_shape_x"], dataset_cfg["img_shape_y"]]
-    img_out_channels = dataset_cfg["out_channels"]
+    img_shape = dataset.image_shape()
+    img_out_channels = len(dataset.output_channels())
 
     # Parse the patch shape
     if hasattr(cfg, "training.hp.patch_shape_x"):
@@ -125,7 +125,7 @@ def main(cfg: DictConfig) -> None:
         ) as f:
             args = json.load(f)
         net_res = EDMPrecondSR(**args["__args__"])
-        model_dict = paddle.load(path=regression_checkpoint_path)
+        model_dict = paddle.load(path=res_ckpt_filename)
         net_res.load_dict(model_dict)
         net_res.eval()
         if cfg.generation.perf.force_fp16:
@@ -198,8 +198,8 @@ def main(cfg: DictConfig) -> None:
                         latents_shape=(
                             cfg.generation.seed_batch_size,
                             img_out_channels,
-                            img_shape[0],
                             img_shape[1],
+                            img_shape[0],
                         ),
                     )
             if net_res:
@@ -280,10 +280,10 @@ def main(cfg: DictConfig) -> None:
     if dist.rank == 0:
         writer = NetCDFWriter(
             f,
-            lat=dataset_cfg["latitude"],
-            lon=dataset_cfg["longitude"],
-            input_channels=dataset_cfg["input_channels_name"],
-            output_channels=dataset_cfg["output_channels_name"],
+            lat=dataset.latitude(),
+            lon=dataset.longitude(),
+            input_channels=dataset.input_channels(),
+            output_channels=dataset.output_channels(),
         )
 
         start = paddle.device.Event(enable_timing=True)

@@ -19,6 +19,7 @@ import sys
 sys.path.append("/public/home/huanggang/Baidu/paddle/modulus")
 import os
 import paddle
+import json
 import time, psutil, hydra
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, OmegaConf
@@ -30,6 +31,7 @@ from modulus.metrics.diffusion import RegressionLoss, ResLoss
 from modulus.launch.logging import PythonLogger, RankZeroLoggingWrapper
 from modulus.launch.utils import load_checkpoint, save_checkpoint
 from datasets.dataset import init_train_valid_datasets_from_config
+from modulus.models.diffusion.unet import UNet
 from helpers.train_helpers import (
     set_patch_shape,
     set_seed,
@@ -103,16 +105,10 @@ def main(cfg: DictConfig) -> None:
     )
 
     # Parse image configuration & update model args
-    if dataset_cfg["type"]:
-        img_in_channels = dataset_cfg["in_channels"]
-        img_shape = [dataset_cfg["img_shape_x"], dataset_cfg["img_shape_y"]]
-        img_out_channels = dataset_cfg["out_channels"]
-    else:
-        dataset_channels = len(dataset.input_channels())
-        img_in_channels = dataset_channels
-        img_shape = dataset.image_shape()
-        img_out_channels = len(dataset.output_channels())
-
+    dataset_channels = len(dataset.input_channels())
+    img_in_channels = dataset_channels
+    img_shape = dataset.image_shape()
+    img_out_channels = len(dataset.output_channels())
     if cfg.model.hr_mean_conditioning:
         img_in_channels += img_out_channels
 
@@ -191,7 +187,11 @@ def main(cfg: DictConfig) -> None:
             raise FileNotFoundError(
                 f"Expected a this regression checkpoint but not found: {regression_checkpoint_path}"
             )
-        regression_net = Module.from_checkpoint(regression_checkpoint_path)
+        with open(cfg.training.io.reg_json, "r") as f:
+            args = json.load(f)
+        regression_net = UNet(**args["__args__"])
+        model_dict = paddle.load(path=regression_checkpoint_path)
+        regression_net.load_dict(model_dict)
         regression_net.eval()
         logger0.success("Loaded the pre-trained regression model")
 
@@ -279,7 +279,6 @@ def main(cfg: DictConfig) -> None:
                     labels=labels,
                     augment_pipe=None,
                 )
-            print("loss.sum()", loss.sum())
             loss = loss.sum() / batch_size_per_gpu
             loss_accum += loss / num_accumulation_rounds
             loss.backward()

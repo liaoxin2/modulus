@@ -396,9 +396,7 @@ class RegressionLoss:
             A tensor representing the loss calculated based on the network's
             predictions.
         """
-        rnd_normal = paddle.randn([img_clean.shape[0], 1, 1, 1]).to(
-            device=img_clean.place
-        )
+        rnd_normal = paddle.randn([img_clean.shape[0], 1, 1, 1])
         sigma = (rnd_normal * self.P_std + self.P_mean).exp()
         weight = (
             1.0  # (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
@@ -513,11 +511,11 @@ class ResLoss:
         Ny = paddle.arange(self.img_shape_y).astype("int64")
         grid = paddle.stack(paddle.meshgrid(Ny, Nx, indexing="ij"), axis=0)[
             None,
-        ].expand(b, -1, -1, -1)
+        ].expand([b, -1, -1, -1])
 
         # form residual
         y_mean = self.unet(
-            paddle.zeros_like(y, device=img_clean.place),
+            paddle.zeros_like(y),
             y_lr_res,
             sigma,
             labels,
@@ -527,7 +525,7 @@ class ResLoss:
         y = y - y_mean
 
         if self.hr_mean_conditioning:
-            y_lr = paddle.concat((y_mean, y_lr), axis=1).contiguous()
+            y_lr = paddle.concat((y_mean, y_lr), axis=1)
         global_index = None
         # patchified training
         # conditioning: cat(y_mean, y_lr, input_interp, pos_embd), 4+12+100+4
