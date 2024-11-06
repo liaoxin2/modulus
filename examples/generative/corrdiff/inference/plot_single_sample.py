@@ -50,7 +50,7 @@ def plot_channels(group, time_idx: int):
         sharex=True,
         sharey=True,
         constrained_layout=True,
-        figsize=(15, 15),
+        figsize=(20, 15),
     )
 
     for ch, ax in zip(sorted(group.variables), axs.flat):
@@ -89,6 +89,21 @@ def get_clim(output_channels, f):
     return colorlimits
 
 
+def plot_panel_out(ax, data, vmin, vmax, **kwargs):
+    x = np.linspace(0, 200, 201)
+    y = np.linspace(0, 266, 267)
+    X, Y = np.meshgrid(y, x)
+
+    if vmin < 0 < vmax:
+        bound = max(abs(vmin), abs(vmax))
+        vmin1 = -bound
+        vmax1 = bound
+    else:
+        vmin1 = vmin
+        vmax1 = vmax
+    return ax.pcolormesh(X, Y, data, cmap="RdBu_r", vmin=vmin1, vmax=vmax1)
+
+
 def main(file, output_dir, sample):
     """Plot single sample"""
     os.makedirs(output_dir, exist_ok=True)
@@ -98,6 +113,7 @@ def main(file, output_dir, sample):
     output_channels = list(f["prediction"].variables)
     v = f["time"]
     times = cftime.num2date(v, units=v.units, calendar=v.calendar)
+    times = [1, 2, 3, 4, 5]
 
     def plot_panel(ax, data, **kwargs):
         return ax.pcolormesh(f["lon"], f["lat"], data, cmap="RdBu_r", **kwargs)
@@ -112,7 +128,7 @@ def main(file, output_dir, sample):
             sharex=True,
             sharey=True,
             constrained_layout=True,
-            figsize=(12, 12),
+            figsize=(20, 10),
         )
         row = axs[0]
         row[0].set_title("Input")
@@ -124,7 +140,6 @@ def main(file, output_dir, sample):
             row = axs[ch]
 
             # label row
-
             y = f["prediction"][channel][sample, idx]
             truth = f["truth"][channel][idx]
 
@@ -137,35 +152,14 @@ def main(file, output_dir, sample):
 
             vmin, vmax = colorlimits[channel]
 
-            def plot_panel(ax, data, **kwargs):
-                if channel == "maximum_radar_reflectivity":
-                    return ax.pcolormesh(
-                        f["lon"], f["lat"], data, cmap="magma", vmin=0, vmax=vmax
-                    )
-                if channel == "temperature_2m":
-                    return ax.pcolormesh(
-                        f["lon"], f["lat"], data, cmap="magma", vmin=vmin, vmax=vmax
-                    )
-                else:
-                    if vmin < 0 < vmax:
-                        bound = max(abs(vmin), abs(vmax))
-                        vmin1 = -bound
-                        vmax1 = bound
-                    else:
-                        vmin1 = vmin
-                        vmax1 = vmax
-                    return ax.pcolormesh(
-                        f["lon"], f["lat"], data, cmap="RdBu_r", vmin=vmin1, vmax=vmax1
-                    )
-
             if x is not None:
-                plot_panel(row[0], x)
+                plot_panel_out(row[0], x, vmin, vmax)
                 pc_x = pattern_correlation(x, truth)
                 label_x = pc_x
                 row[0].set_title(f"Input, Pattern correlation: {label_x:.2f}")
 
-            im = plot_panel(row[1], y)
-            plot_panel(row[2], truth)
+            im = plot_panel_out(row[1], y, vmin, vmax)
+            plot_panel_out(row[2], truth, vmin, vmax)
 
             cb = plt.colorbar(im, ax=row.tolist())
             cb.set_label(channel)
@@ -181,11 +175,51 @@ def main(file, output_dir, sample):
             ax.set_ylabel("latitude [deg N]")
 
         time = times[idx]
-        plt.suptitle(f"Time {time.isoformat()}")
-        plt.savefig(f"{output_dir}/{time.isoformat()}.sample.png")
+        plt.suptitle(f"Time {time}")
+        plt.savefig(f"{output_dir}/{time}.sample.png")
+
+        fig, axs = plt.subplots(
+            nrows=len(output_channels),
+            ncols=1,
+            sharex=True,
+            sharey=True,
+            constrained_layout=True,
+            figsize=(7, 10),
+        )
+
+        row = axs[0]
+        row.set_title("Absolute Error")
+
+        for ch in range(len(output_channels)):
+            channel = output_channels[ch]
+            row = axs[ch]
+
+            # label row
+            y = f["prediction"][channel][sample, idx]
+            truth = f["truth"][channel][idx]
+            error = np.abs(y - truth)
+
+            vmin, vmax = error.min(), error.max()
+
+            im = plot_panel_out(row, error, vmin, vmax)
+
+            cb = plt.colorbar(im)
+            cb.set_label(channel)
+
+            row.set_title(f"Absolute Error of {channel}")
+
+        # for ax in axs[-1]:
+        #     ax.set_xlabel("longitude [deg E]")
+
+        # for ax in axs[:, 0]:
+        #     ax.set_ylabel("latitude [deg N]")
+
+        time = times[idx]
+        plt.suptitle(f"Time {time}")
+        plt.savefig(f"{output_dir}/{time}.error.png")
 
         plot_channels(f["input"], idx)
-        plt.savefig(f"{output_dir}/{time.isoformat()}.input.png")
+        plt.savefig(f"{output_dir}/{time}.input.png")
 
 
 if __name__ == "__main__":

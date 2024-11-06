@@ -22,10 +22,14 @@ import copy
 from modulus.utils.generative import InfiniteSampler
 from modulus.distributed import DistributedManager
 
-from . import base, cwb, hrrrmini
+from . import base, cwb, hrrrmini, npy
 
 # this maps all known dataset types to the corresponding init function
-known_datasets = {"cwb": cwb.get_zarr_dataset, "hrrr_mini": hrrrmini.HRRRMiniDataset}
+known_datasets = {
+    "cwb": cwb.get_zarr_dataset,
+    "hrrr_mini": hrrrmini.HRRRMiniDataset,
+    "npy": npy.NpyDataset,
+}
 
 
 def init_train_valid_datasets_from_config(
@@ -34,6 +38,7 @@ def init_train_valid_datasets_from_config(
     batch_size: int = 1,
     seed: int = 0,
     validation_dataset_cfg: Union[dict, None] = None,
+    train_test_split: bool = False,
 ) -> Tuple[
     base.DownscalingDataset,
     Iterable,
@@ -56,19 +61,30 @@ def init_train_valid_datasets_from_config(
 
     config = copy.deepcopy(dataset_cfg)
 
-    train_test_split = config.pop("train_test_split", True)
-    dataset, dataset_iter = init_dataset_from_config(
-        config, dataloader_cfg, batch_size=batch_size, seed=seed
-    )
-    if train_test_split:
-        valid_dataset_cfg = copy.deepcopy(config)
-        validation_dataset_cfg = {"train": False, "all_times": False}
-        valid_dataset_cfg.update(validation_dataset_cfg)
-        (valid_dataset, valid_dataset_iter) = init_dataset_from_config(
-            valid_dataset_cfg, dataloader_cfg, batch_size=batch_size, seed=seed
+    if dataset_cfg["type"] == "npy":
+        (
+            dataset,
+            dataset_iter,
+            valid_dataset,
+            valid_dataset_iter,
+        ) = init_dataset_from_config_npy(
+            config, dataloader_cfg, batch_size=batch_size, seed=seed
         )
     else:
-        valid_dataset = valid_dataset_iter = None
+        train_test_split = config.pop("train_test_split", True)
+        dataset, dataset_iter = init_dataset_from_config(
+            config, dataloader_cfg, batch_size=batch_size, seed=seed
+        )
+
+        if train_test_split:
+            valid_dataset_cfg = copy.deepcopy(config)
+            validation_dataset_cfg = {"train": False, "all_times": False}
+            valid_dataset_cfg.update(validation_dataset_cfg)
+            (valid_dataset, valid_dataset_iter) = init_dataset_from_config(
+                valid_dataset_cfg, dataloader_cfg, batch_size=batch_size, seed=seed
+            )
+        else:
+            valid_dataset = valid_dataset_iter = None
 
     return dataset, dataset_iter, valid_dataset, valid_dataset_iter
 
@@ -90,17 +106,79 @@ def init_dataset_from_config(
     if dataloader_cfg is None:
         dataloader_cfg = {}
 
-    dist = DistributedManager()
-    dataset_sampler = InfiniteSampler(
-        dataset=dataset_obj, rank=dist.rank, num_replicas=dist.world_size, seed=seed
-    )
-
     dataset_iterator = iter(
         paddle.io.DataLoader(
             dataset=dataset_obj,
             batch_size=batch_size,
             worker_init_fn=None,
+            **dataloader_cfg,
         )
     )
 
     return dataset_obj, dataset_iterator
+
+
+def init_dataset_from_config_npy(
+    dataset_cfg: dict,
+    dataloader_cfg: Union[dict, None] = None,
+    batch_size: int = 1,
+    seed: int = 0,
+) -> Tuple[base.DownscalingDataset, Iterable]:
+
+    dataset_cfg = copy.deepcopy(dataset_cfg)
+    dataset_type = dataset_cfg["type"]
+    if "train_test_split" in dataset_cfg:
+        # handled by init_train_valid_datasets_from_config
+        del dataset_cfg["train_test_split"]
+
+    dataset_init_func = known_datasets[dataset_type]
+
+    dataset_obj = dataset_init_func(**dataset_cfg)
+
+    if "vaild_size" in dataset_cfg:
+        val_size = int(len(dataset_obj) * dataset_cfg["vaild_size"])
+        train_size = len(dataset_obj) - val_size
+        # train_dataset, val_dataset = paddle.io.random_split(dataset_obj, [train_size, val_size])
+        total_size = len(dataset_obj)
+        indices = list(range(total_size))
+        train_indices = indices[:train_size]
+        val_indices = indices[train_size:]
+        train_dataset = paddle.io.Subset(dataset_obj, train_indices)
+        val_dataset = paddle.io.Subset(dataset_obj, val_indices)
+
+        if dataloader_cfg is None:
+            dataloader_cfg = {}
+
+        dataset_iterator = iter(
+            paddle.io.DataLoader(
+                dataset=dataset_obj,
+                batch_size=batch_size,
+                worker_init_fn=None,
+                **dataloader_cfg,
+            )
+        )
+
+        val_iterator = iter(
+            paddle.io.DataLoader(
+                dataset=val_dataset,
+                batch_size=batch_size,
+                worker_init_fn=None,
+                **dataloader_cfg,
+            )
+        )
+
+        return (train_dataset, dataset_iterator, val_dataset, val_iterator)
+    else:
+        if dataloader_cfg is None:
+            dataloader_cfg = {}
+
+        dataset_iterator = iter(
+            paddle.io.DataLoader(
+                dataset=dataset_obj,
+                batch_size=batch_size,
+                worker_init_fn=None,
+                **dataloader_cfg,
+            )
+        )
+
+        return (dataset_obj, dataset_iterator)

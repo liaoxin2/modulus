@@ -35,7 +35,11 @@ def get_dataset_and_sampler(dataset_cfg, times):
         for time in times
     ]
     all_times = dataset.time()
-    time_indices = [all_times.index(t) for t in plot_times]
+
+    if dataset_cfg["type"] == "npy":
+        time_indices = all_times
+    else:
+        time_indices = [all_times.index(t) for t in plot_times]
     sampler = time_indices
 
     return dataset, sampler
@@ -93,10 +97,14 @@ def save_images(
         image_out2 = dataset.denormalize_output(image_out2)
 
         time = times[t_index]
+
         writer.write_time(time_index, time)
         for channel_idx in range(tuple(image_out2.shape)[1]):
             info = dataset.output_channels()[channel_idx]
-            channel_name = info.name + info.level
+            if type(info) == str:
+                channel_name = info
+            else:
+                channel_name = info.name + info.level
             truth = image_tar2[0, channel_idx]
 
             writer.write_truth(channel_name, time_index, truth)
@@ -107,7 +115,10 @@ def save_images(
         input_channel_info = dataset.input_channels()
         for channel_idx in range(len(input_channel_info)):
             info = input_channel_info[channel_idx]
-            channel_name = info.name + info.level
+            if type(info) == str:
+                channel_name = info
+            else:
+                channel_name = info.name + info.level
             writer.write_input(channel_name, time_index, image_lr2[0, channel_idx])
             if channel_idx == tuple(image_lr2.shape)[1] - 1:
                 break

@@ -213,7 +213,7 @@ class Module(paddle.nn.Layer):
         with tempfile.TemporaryDirectory() as temp_dir:
             local_path = Path(temp_dir)
 
-            paddle.save(self.state_dict(), local_path / "model.pt")
+            paddle.save(self.state_dict(), str(local_path / "model.pdparams"))
 
             with open(local_path / "args.json", "w") as f:
                 json.dump(self._args, f)

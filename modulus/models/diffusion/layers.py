@@ -223,12 +223,21 @@ class Conv2D(paddle.nn.Layer):
             )
         else:
             if self.up:
+                if x.shape[2] == 12:
+                    output_padding = (1, 1)
+                elif x.shape[2] == 50:
+                    output_padding = (0, 1)
+                else:
+                    output_padding = 0
                 x = paddle.nn.functional.conv2d_transpose(
                     x,
-                    f.multiply(paddle.to_tensor(4, dtype='float32')).tile([self.in_channels, 1, 1, 1]),
+                    f.multiply(paddle.to_tensor(4, dtype="float32")).tile(
+                        [self.in_channels, 1, 1, 1]
+                    ),
                     groups=self.in_channels,
                     stride=2,
                     padding=f_pad,
+                    output_padding=output_padding,
                 )
             if self.down:
                 x = paddle.nn.functional.conv2d(
@@ -284,8 +293,8 @@ class GroupNorm(paddle.nn.Layer):
         super().__init__()
         self.num_groups = min(num_groups, num_channels // min_channels_per_group)
         self.eps = eps
-        self.weight = self.create_parameter([num_channels], dtype='float32')
-        self.bias = self.create_parameter([num_channels], dtype='float32')
+        self.weight = self.create_parameter([num_channels], dtype="float32")
+        self.bias = self.create_parameter([num_channels], dtype="float32")
 
     def forward(self, x):
         if self.training:
@@ -301,7 +310,6 @@ class GroupNorm(paddle.nn.Layer):
         else:
             # Use custom GroupNorm implementation that supports channels last
             # memory layout for inference
-            dtype = x.dtype
             x = x.astype("float32")
             x = rearrange(x, "b (g c) h w -> b g c h w", g=self.num_groups)
 
@@ -331,15 +339,16 @@ class AttentionOp(paddle.autograd.PyLayer):
             paddle.einsum(
                 "ncq,nck->nqk",
                 q,
-                (k / paddle.sqrt(paddle.to_tensor(k.shape[1], dtype='float32'))),
-            ), axis=2
+                (k / paddle.sqrt(paddle.to_tensor(k.shape[1], dtype="float32"))),
+            ),
+            axis=2,
         )
         ctx.save_for_backward(q, k, w)
         return w
 
     @staticmethod
     def backward(ctx, dw):
-        q, k, w = ctx.saved_tensors
+        q, k, w = ctx.saved_tensor()
         # db = paddle._softmax_backward_data(
         #     grad_output=dw.to(paddle.float32),
         #     output=w.to(paddle.float32),

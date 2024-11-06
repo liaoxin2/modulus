@@ -470,7 +470,7 @@ except AttributeError:
 # Note: Cannot use catch_warnings because of https://bugs.python.org/issue29672
 
 
-# @contextlib.contextmanager
+@contextlib.contextmanager
 def suppress_tracer_warnings():
     """
     Context manager to temporarily suppress known warnings in torch.jit.trace().
@@ -585,18 +585,18 @@ class InfiniteSampler(paddle.io.Sampler):
 
 
 # ----------------------------------------------------------------------------
-# Utilities for operating with torch.nn.Module parameters and buffers.
+# Utilities for operating with torch.nn.Layer parameters and buffers.
 
 
 def params_and_buffers(module):
-    """Get parameters and buffers of a nn.Module"""
+    """Get parameters and buffers of a nn.Layer"""
     if not isinstance(module, paddle.nn.Layer):
         raise TypeError("module must be a paddle.nn.Layer instance")
     return list(module.parameters()) + list(module.buffers())
 
 
 def named_params_and_buffers(module):
-    """Get named parameters and buffers of a nn.Module"""
+    """Get named parameters and buffers of a nn.Layer"""
     if not isinstance(module, paddle.nn.Layer):
         raise TypeError("module must be a paddle.nn.Layer instance")
     return list(module.named_parameters()) + list(module.named_buffers())

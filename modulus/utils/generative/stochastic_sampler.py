@@ -291,7 +291,9 @@ def stochastic_sampler(
     latents: Tensor,
     img_lr: Tensor,
     class_labels: Optional[Tensor] = None,
-    randn_like: Callable[[Tensor], Tensor] = paddle.randn,
+    randn_like: Callable[[Tensor], Tensor] = lambda x: paddle.randn(
+        x.shape, dtype=x.dtype
+    ),
     img_shape: int = 448,
     patch_shape: int = 448,
     overlap_pix: int = 4,

@@ -25,11 +25,11 @@ hydra:
 defaults:
 
   # Dataset
-  - dataset/cwb_generate
+  - dataset/npy_generate
 
   # Sampler
-  # sampler/stochastic
-  - sampler/deterministic
+  - sampler/stochastic
+  #- sampler/deterministic
 
   # Generation
-  - generation/base
+  - generation/npy
