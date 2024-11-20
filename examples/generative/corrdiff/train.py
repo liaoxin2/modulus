@@ -23,12 +23,10 @@ import json
 import time, psutil, hydra
 from hydra.utils import to_absolute_path
 from omegaconf import DictConfig, OmegaConf
-from modulus import Module
+import paddle.distributed as dist
 from modulus.models.diffusion import UNet, EDMPrecondSR
-from modulus.distributed import DistributedManager
 from modulus.launch.logging import PythonLogger, RankZeroLoggingWrapper
 from modulus.metrics.diffusion import RegressionLoss, ResLoss
-from modulus.launch.logging import PythonLogger, RankZeroLoggingWrapper
 from modulus.launch.utils import load_checkpoint, save_checkpoint
 from datasets.dataset import init_train_valid_datasets_from_config
 from modulus.models.diffusion.unet import UNet
@@ -46,12 +44,8 @@ from visualdl import LogWriter
 @hydra.main(version_base="1.2", config_path="conf", config_name="config_training")
 def main(cfg: DictConfig) -> None:
 
-    # Initialize distributed environment for training
-    DistributedManager.initialize()
-    dist = DistributedManager()
-
     # Initialize loggers
-    if dist.rank == 0:
+    if dist.get_rank() == 0:
         with LogWriter(logdir="visualdl_log") as writer:
             writer.add_scalar(tag="example_metric", step=1, value=0.5)
     logger = PythonLogger("main")  # General python logger
@@ -78,11 +72,11 @@ def main(cfg: DictConfig) -> None:
     )
     if cfg.training.hp.batch_size_per_gpu == "auto":
         cfg.training.hp.batch_size_per_gpu = (
-            cfg.training.hp.total_batch_size // dist.world_size
+            cfg.training.hp.total_batch_size // dist.get_world_size()
         )
 
     # Set seeds and configure CUDA and cuDNN settings to ensure consistent precision
-    set_seed(dist.rank)
+    set_seed(dist.get_rank())
 
     # Instantiate the dataset
     data_loader_kwargs = {
@@ -105,10 +99,10 @@ def main(cfg: DictConfig) -> None:
     )
 
     # Parse image configuration & update model args
-    dataset_channels = len(dataset.input_channels())
-    img_in_channels = dataset_channels
-    img_shape = dataset.image_shape()
-    img_out_channels = len(dataset.output_channels())
+    img_in_channels = dataset_cfg["in_channels"]
+    img_shape = [dataset_cfg["img_shape_x"], dataset_cfg["img_shape_y"]]
+    img_out_channels = dataset_cfg["out_channels"]
+
     if cfg.model.hr_mean_conditioning:
         img_in_channels += img_out_channels
 
@@ -127,7 +121,7 @@ def main(cfg: DictConfig) -> None:
         logger0.info("Patch-based training disabled")
     # interpolate global channel if patch-based model is used
     if img_shape[1] != patch_shape[1]:
-        img_in_channels += dataset_channels
+        img_in_channels += img_in_channels
 
     # Instantiate the model and move to device.
     if cfg.model.name not in ("regression", "diffusion", "patched_diffusion"):
@@ -172,11 +166,8 @@ def main(cfg: DictConfig) -> None:
     model.train()
 
     # Enable distributed data parallel if applicable
-    if dist.world_size > 1:
-        model = paddle.DataParallel(
-            model,
-            find_unused_parameters=dist.find_unused_parameters,
-        )
+    if dist.get_world_size() > 1:
+        model = paddle.DataParallel(model)
 
     # Load the regression checkpoint if applicable
     if hasattr(cfg.training.io, "regression_checkpoint_path"):
@@ -224,25 +215,25 @@ def main(cfg: DictConfig) -> None:
     start_time = time.time()
 
     # Compute the number of required gradient accumulation rounds
-    # It is automatically used if batch_size_per_gpu * dist.world_size < total_batch_size
+    # It is automatically used if batch_size_per_gpu * dist.get_world_size() < total_batch_size
     batch_gpu_total, num_accumulation_rounds = compute_num_accumulation_rounds(
         cfg.training.hp.total_batch_size,
         cfg.training.hp.batch_size_per_gpu,
-        dist.world_size,
+        dist.get_world_size(),
     )
 
     batch_size_per_gpu = cfg.training.hp.batch_size_per_gpu
     logger0.info(f"Using {num_accumulation_rounds} gradient accumulation rounds")
 
     ## Resume training from previous checkpoints if exists
-    if dist.world_size > 1:
+    if dist.get_world_size() > 1:
         paddle.distributed.barrier()
     try:
         cur_nimg = load_checkpoint(
             path=checkpoint_dir,
             models=model,
             optimizer=optimizer,
-            device=dist.device,
+            device=paddle.get_device(),
         )
     except:
         cur_nimg = 0
@@ -283,13 +274,13 @@ def main(cfg: DictConfig) -> None:
             loss_accum += loss / num_accumulation_rounds
             loss.backward()
 
-        loss_sum = paddle.to_tensor(data=[loss_accum], place=dist.device)
-        if dist.world_size > 1:
+        loss_sum = paddle.to_tensor(data=[loss_accum], place=paddle.get_device())
+        if dist.get_world_size() > 1:
             paddle.distributed.barrier()
             paddle.distributed.all_reduce(
                 tensor=loss_sum, op=paddle.distributed.ReduceOp.SUM
             )
-        average_loss = (loss_sum / dist.world_size).cpu().item()
+        average_loss = (loss_sum / dist.get_world_size()).cpu().item()
 
         # update running mean of average loss since last periodic task
         average_loss_running_mean += (
@@ -297,7 +288,7 @@ def main(cfg: DictConfig) -> None:
         ) / n_average_loss_running_mean
         n_average_loss_running_mean += 1
 
-        if dist.rank == 0:
+        if dist.get_rank() == 0:
             writer.add_scalar("training_loss", average_loss, cur_nimg)
             writer.add_scalar(
                 "training_loss_running_mean", average_loss_running_mean, cur_nimg
@@ -308,7 +299,7 @@ def main(cfg: DictConfig) -> None:
             cfg.training.io.print_progress_freq,
             done,
             cfg.training.hp.total_batch_size,
-            dist.rank,
+            dist.get_rank(),
             rank_0_only=True,
         )
         if ptt:
@@ -324,7 +315,7 @@ def main(cfg: DictConfig) -> None:
         if cur_nimg >= lr_rampup:
             current_lr *= cfg.training.hp.lr_decay ** ((cur_nimg - lr_rampup) // 5e6)
 
-        if dist.rank == 0:
+        if dist.get_rank() == 0:
             writer.add_scalar("learning_rate", current_lr, cur_nimg)
         handle_and_clip_gradients(
             model, grad_clip_threshold=cfg.training.hp.grad_clip_threshold
@@ -342,7 +333,7 @@ def main(cfg: DictConfig) -> None:
                 cfg.training.io.validation_freq,
                 done,
                 cfg.training.hp.total_batch_size,
-                dist.rank,
+                dist.get_rank(),
             ):
                 with paddle.no_grad():
                     for _ in range(cfg.training.io.validation_steps):
@@ -360,7 +351,7 @@ def main(cfg: DictConfig) -> None:
                         img_lr_valid = paddle.to_tensor(img_lr_valid, dtype="float32")
                         img_lr_valid = paddle.transpose(img_lr_valid, perm=[0, 3, 1, 2])
 
-                        labels_valid = labels_valid.to(dist.device).contiguous()
+                        labels_valid = labels_valid.to(paddle.get_device()).contiguous()
                         loss_valid = loss_fn(
                             net=model,
                             img_clean=img_clean_valid,
@@ -373,15 +364,15 @@ def main(cfg: DictConfig) -> None:
                             loss_valid / cfg.training.io.validation_steps
                         )
                     valid_loss_sum = paddle.to_tensor(
-                        data=[valid_loss_accum], place=dist.device
+                        data=[valid_loss_accum], place=paddle.get_device()
                     )
-                    if dist.world_size > 1:
+                    if dist.get_world_size() > 1:
                         paddle.distributed.barrier()
                         paddle.distributed.all_reduce(
                             tensor=valid_loss_sum, op=paddle.distributed.ReduceOp.SUM
                         )
-                    average_valid_loss = valid_loss_sum / dist.world_size
-                    if dist.rank == 0:
+                    average_valid_loss = valid_loss_sum / dist.get_world_size()
+                    if dist.get_rank() == 0:
                         writer.add_scalar(
                             "validation_loss", average_valid_loss, cur_nimg
                         )
@@ -391,7 +382,7 @@ def main(cfg: DictConfig) -> None:
             cfg.training.io.print_progress_freq,
             done,
             cfg.training.hp.total_batch_size,
-            dist.rank,
+            dist.get_rank(),
             rank_0_only=True,
         ):
             # Print stats if we crossed the printing threshold with this batch
@@ -412,14 +403,14 @@ def main(cfg: DictConfig) -> None:
             logger0.info(" ".join(fields))
 
         # Save checkpoints
-        if dist.world_size > 1:
+        if dist.get_world_size() > 1:
             paddle.distributed.barrier()
         if is_time_for_periodic_task(
             cur_nimg,
             cfg.training.io.save_checkpoint_freq,
             done,
             cfg.training.hp.total_batch_size,
-            dist.rank,
+            dist.get_rank(),
             rank_0_only=True,
         ):
             save_checkpoint(

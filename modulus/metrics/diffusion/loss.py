@@ -493,7 +493,7 @@ class ResLoss:
         rnd_normal = paddle.randn([img_clean.shape[0], 1, 1, 1]).to(
             device=img_clean.place
         )
-        sigma = (rnd_normal * self.P_std + self.P_mean).exp()
+        sigma = (rnd_normal * self.P_std + self.P_mean).exp()  # initial noise level
         weight = (sigma**2 + self.sigma_data**2) / (sigma * self.sigma_data) ** 2
 
         # augment for conditional generaiton

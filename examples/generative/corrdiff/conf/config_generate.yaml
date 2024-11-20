@@ -19,7 +19,9 @@ hydra:
     chdir: true
     name: generation
   run:
-    dir: ./outputs/${hydra:job.name}
+    dir: ./outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}/${hydra:job.name}
+
+output_dir: ${hydra:run.dir}
 
 # Get defaults
 defaults:

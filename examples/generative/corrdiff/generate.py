@@ -15,8 +15,9 @@
 # limitations under the License.
 
 import sys
+import os
 
-sys.path.append("/workspace/workspace/modulus-sym")
+sys.path.append("/public/home/huanggang/Baidu/paddle/modulus/")
 import paddle
 import hydra
 from omegaconf import OmegaConf, DictConfig
@@ -24,7 +25,7 @@ import nvtx
 import json
 import numpy as np
 import netCDF4 as nc
-from modulus.distributed import DistributedManager
+import paddle.distributed as dist
 from modulus.launch.logging import PythonLogger, RankZeroLoggingWrapper
 from modulus import Module
 from concurrent.futures import ThreadPoolExecutor
@@ -53,9 +54,7 @@ def main(cfg: DictConfig) -> None:
     """
 
     # Initialize distributed manager
-    DistributedManager.initialize()
-    dist = DistributedManager()
-    device = dist.device
+    device = paddle.get_device()
 
     # Initialize logger
     logger = PythonLogger("generate")  # General python logger
@@ -65,14 +64,14 @@ def main(cfg: DictConfig) -> None:
     # Handle the batch size
     seeds = list(np.arange(cfg.generation.num_ensembles))
     num_batches = (
-        (len(seeds) - 1) // (cfg.generation.seed_batch_size * dist.world_size) + 1
-    ) * dist.world_size
+        (len(seeds) - 1) // (cfg.generation.seed_batch_size * dist.get_world_size()) + 1
+    ) * dist.get_world_size()
 
     all_batches = paddle.to_tensor(data=seeds).tensor_split(num_or_indices=num_batches)
-    rank_batches = all_batches[dist.rank :: dist.world_size]
+    rank_batches = all_batches[dist.get_rank() :: dist.get_world_size()]
 
     # Synchronize
-    if dist.world_size > 1:
+    if dist.get_world_size() > 1:
         paddle.distributed.barrier()
 
     # Parse the inference input times
@@ -218,7 +217,7 @@ def main(cfg: DictConfig) -> None:
                         img_lr=image_lr_patch.expand(
                             shape=[cfg.generation.seed_batch_size, -1, -1, -1]
                         ),
-                        rank=dist.rank,
+                        rank=dist.get_rank(),
                         device=device,
                         hr_mean=mean_hr,
                     )
@@ -238,11 +237,11 @@ def main(cfg: DictConfig) -> None:
                 )
 
             # Gather tensors on rank 0
-            if dist.world_size > 1:
-                if dist.rank == 0:
+            if dist.get_world_size() > 1:
+                if dist.get_rank() == 0:
                     gathered_tensors = [
                         paddle.zeros_like(x=image_out, dtype=image_out.dtype)
-                        for _ in range(dist.world_size)
+                        for _ in range(dist.get_world_size())
                     ]
                 else:
                     gathered_tensors = None
@@ -250,11 +249,11 @@ def main(cfg: DictConfig) -> None:
                 paddle.distributed.barrier()
                 paddle.distributed.gather(
                     tensor=image_out,
-                    gather_list=gathered_tensors if dist.rank == 0 else None,
+                    gather_list=gathered_tensors if dist.get_rank() == 0 else None,
                     dst=0,
                 )
 
-                if dist.rank == 0:
+                if dist.get_rank() == 0:
                     return paddle.concat(x=gathered_tensors)
                 else:
                     return None
@@ -263,21 +262,23 @@ def main(cfg: DictConfig) -> None:
 
     # generate images
     output_path = getattr(cfg.generation.io, "output_filename", "corrdiff_output.nc")
-    logger0.info(f"Generating images, saving results to {output_path}...")
+    logger0.info(
+        f"Generating images, saving results to {os.path.join(cfg.output_dir, output_path)}..."
+    )
     batch_size = 1
     warmup_steps = min(len(times), 2)
     # Generates model predictions from the input data using the specified
     # `generate_fn`, and save the predictions to the provided NetCDF file. It iterates
     # through the dataset using a data loader, computes predictions, and saves them along
     # with associated metadata.
-    if dist.rank == 0:
+    if dist.get_rank() == 0:
         f = nc.Dataset(output_path, "w")
         # add attributes
         f.cfg = str(cfg)
 
     data_loader = paddle.io.DataLoader(dataset=dataset, batch_size=1)
     time_index = -1
-    if dist.rank == 0:
+    if dist.get_rank() == 0:
         writer = NetCDFWriter(
             f,
             lat=dataset.latitude(),
@@ -302,7 +303,7 @@ def main(cfg: DictConfig) -> None:
     flag = 0
     for image_tar, image_lr, index in iter(data_loader):
         time_index += 1
-        if dist.rank == 0:
+        if dist.get_rank() == 0:
             logger0.info(f"starting index: {time_index}")
 
         if time_index == warmup_steps:
@@ -315,7 +316,7 @@ def main(cfg: DictConfig) -> None:
         image_tar = paddle.transpose(image_tar, perm=[0, 3, 1, 2])
         image_out = generate_fn()
 
-        if dist.rank == 0:
+        if dist.get_rank() == 0:
             batch_size = image_out.shape[0]
             # write out data in a seperate thread so we don't hold up inferencing
             writer_threads.append(
@@ -338,7 +339,7 @@ def main(cfg: DictConfig) -> None:
     end.synchronize()
     elapsed_time = start.elapsed_time(end) / 1000.0
     timed_steps = time_index + 1 - warmup_steps
-    if dist.rank == 0:
+    if dist.get_rank() == 0:
         average_time_per_batch_element = elapsed_time / timed_steps / batch_size
         logger.info(
             f"Total time to run {timed_steps} and {batch_size} ensembles = {elapsed_time} s"
@@ -348,13 +349,13 @@ def main(cfg: DictConfig) -> None:
         )
 
     # make sure all the workers are done writing
-    if dist.rank == 0:
+    if dist.get_rank() == 0:
         for thread in list(writer_threads):
             thread.result()
             writer_threads.remove(thread)
         writer_executor.shutdown()
 
-    if dist.rank == 0:
+    if dist.get_rank() == 0:
         f.close()
     logger0.info("Generation Completed.")
 

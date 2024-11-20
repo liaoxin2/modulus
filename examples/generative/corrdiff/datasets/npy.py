@@ -92,8 +92,37 @@ class NpyDataset(Dataset):
 
     def denormalize_input(self, x: np.ndarray) -> np.ndarray:
         """Convert input from normalized data to physical units."""
-        return x  # * self.input_std + self.input_mean
+        scale = np.array(
+            [
+                41.633 + 32.601242,
+                35.006054 + 34.006493,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+            ]
+        )
+        bias = np.array([-32.601242, -34.006493, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+        # 使用 reshape 或 np.newaxis 调整形状
+        scale = scale[:, np.newaxis, np.newaxis]
+        bias = bias[:, np.newaxis, np.newaxis]
+        return x * scale + bias
 
     def denormalize_output(self, x: np.ndarray) -> np.ndarray:
         """Convert output from normalized data to physical units."""
-        return x  # * self.output_std + self.output_mean
+        scale = np.array([46.190834 + 34.765285, 39.674255 + 36.528397])
+        bias = np.array([-34.765285, -36.528397])
+
+        # 使用 reshape 或 np.newaxis 调整形状
+        scale = scale[:, np.newaxis, np.newaxis]
+        bias = bias[:, np.newaxis, np.newaxis]
+        return x * scale + bias

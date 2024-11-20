@@ -16,7 +16,7 @@
 
 import datetime
 
-import cftime
+# import cftime
 import nvtx
 import paddle
 import tqdm
@@ -195,10 +195,11 @@ class NetCDFWriter:
 
     def write_time(self, time_index, time):
         """Write time information to NetCDF file."""
-        time_v = self._f["time"]
-        self._f["time"][time_index] = cftime.date2num(
-            time, time_v.units, time_v.calendar
-        )
+        # time_v = self._f["time"]
+        self._f["time"][time_index] = time_index
+        # cftime.date2num(
+        #     time, time_v.units, time_v.calendar
+        # )
 
 
 ############################################################################

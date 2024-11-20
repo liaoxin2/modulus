@@ -16,7 +16,7 @@
 
 name: diffusion
   # Name of the preconditioner
-hr_mean_conditioning: false
+hr_mean_conditioning: True
   # High-res mean (regression's output) as additional condition
 scale_cond_input: True
 # If true, also scales the input conditioning

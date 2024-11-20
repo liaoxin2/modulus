@@ -138,13 +138,9 @@ def init_dataset_from_config_npy(
     if "vaild_size" in dataset_cfg:
         val_size = int(len(dataset_obj) * dataset_cfg["vaild_size"])
         train_size = len(dataset_obj) - val_size
-        # train_dataset, val_dataset = paddle.io.random_split(dataset_obj, [train_size, val_size])
-        total_size = len(dataset_obj)
-        indices = list(range(total_size))
-        train_indices = indices[:train_size]
-        val_indices = indices[train_size:]
-        train_dataset = paddle.io.Subset(dataset_obj, train_indices)
-        val_dataset = paddle.io.Subset(dataset_obj, val_indices)
+        train_dataset, val_dataset = paddle.io.random_split(
+            dataset_obj, [train_size, val_size]
+        )
 
         if dataloader_cfg is None:
             dataloader_cfg = {}

@@ -18,7 +18,7 @@ num_ensembles: 64
   # Number of ensembles to generate per input
 seed_batch_size: 1
   # Size of the batched inference
-inference_mode: regression
+inference_mode: all
   # Choose between "all" (regression + diffusion), "regression" or "diffusion"
 overlap_pixels: 0
   # Number of overlapping pixels between adjacent patches
@@ -52,10 +52,10 @@ perf:
     # To support multiple workers a threadsafe version of the netCDF library must be used
 
 io:
-  res_ckpt_filename: /public/home/huanggang/Baidu/paddle/modulus/examples/generative/corrdiff/regression.pdparams
+  res_ckpt_filename: /public/home/huanggang/Baidu/paddle/modulus/examples/generative/corrdiff/conf/diffusion.pdparams
     # Checkpoint filename for the diffusion model  
-  reg_ckpt_filename: /public/home/huanggang/Baidu/paddle/modulus/examples/generative/corrdiff/regression.pdparams
+  reg_ckpt_filename: /public/home/huanggang/Baidu/paddle/modulus/examples/generative/corrdiff/conf/regression.pdparams
     # Checkpoint filename for the mean predictor model
-  res_json: /public/home/huanggang/Baidu/paddle/modulus/examples/generative/corrdiff/args.json
-  reg_json: /public/home/huanggang/Baidu/paddle/modulus/examples/generative/corrdiff/args.json
+  res_json: /public/home/huanggang/Baidu/paddle/modulus/examples/generative/corrdiff/conf/d_args.json
+  reg_json: /public/home/huanggang/Baidu/paddle/modulus/examples/generative/corrdiff/conf/r_args.json
   

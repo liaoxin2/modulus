@@ -78,7 +78,7 @@ class RankZeroLoggingWrapper:
         if callable(attr):
 
             def wrapper(*args, **kwargs):
-                if self.dist.rank == 0:
+                if self.dist.get_rank() == 0:
                     return attr(*args, **kwargs)
                 else:
                     return None

@@ -62,7 +62,7 @@ def _get_checkpoint_filename(
     saving : bool, optional
         Get filename for saving a new checkpoint, by default False
     model_type : str
-        Model type, by default "mdlus" for Modulus models and "pt" for PaddlePaddle models
+        Model type, by default "mdlus" for Modulus models and "pdparams" for PaddlePaddle models
 
 
     Returns
@@ -92,7 +92,7 @@ def _get_checkpoint_filename(
     )
 
     # File extension for Modulus models or PaddlePaddle models
-    file_extension = ".mdlus" if model_type == "mdlus" else ".pt"
+    file_extension = ".mdlus" if model_type == "mdlus" else ".pdparams"
 
     # If epoch is provided load that file
     if index is not None:
@@ -223,7 +223,9 @@ def save_checkpoint(
         models = _unique_model_names(models)
         for name, model in models.items():
             # Get model type
-            model_type = "mdlus" if isinstance(model, modulus.models.Module) else "pt"
+            model_type = (
+                "mdlus" if isinstance(model, modulus.models.Module) else "pdparams"
+            )
 
             # Get full file path / name
             file_name = _get_checkpoint_filename(
@@ -256,7 +258,7 @@ def save_checkpoint(
 
     # Output file name
     output_filename = _get_checkpoint_filename(
-        path, index=epoch, saving=True, model_type="pt"
+        path, index=epoch, saving=True, model_type="pdparams"
     )
     if epoch:
         checkpoint_dict["epoch"] = epoch
@@ -322,7 +324,9 @@ def load_checkpoint(
         models = _unique_model_names(models)
         for name, model in models.items():
             # Get model type
-            model_type = "mdlus" if isinstance(model, modulus.models.Module) else "pt"
+            model_type = (
+                "mdlus" if isinstance(model, modulus.models.Module) else "pdparams"
+            )
 
             # Get full file path / name
             file_name = _get_checkpoint_filename(
@@ -344,7 +348,9 @@ def load_checkpoint(
             )
 
     # == Loading training checkpoint ==
-    checkpoint_filename = _get_checkpoint_filename(path, index=epoch, model_type="pt")
+    checkpoint_filename = _get_checkpoint_filename(
+        path, index=epoch, model_type="pdparams"
+    )
     if not Path(checkpoint_filename).is_file():
         checkpoint_logging.warning(
             "Could not find valid checkpoint file, skipping load"

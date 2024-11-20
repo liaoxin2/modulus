@@ -362,7 +362,7 @@ def stochastic_sampler(
     sigma_max = min(sigma_max, net.sigma_max)
 
     # Time step discretization.
-    step_indices = paddle.arange(num_steps, dtype=paddle.float64, device=latents.device)
+    step_indices = paddle.arange(num_steps, dtype=paddle.float32)
     t_steps = (
         sigma_max ** (1 / rho)
         + step_indices
@@ -378,7 +378,7 @@ def stochastic_sampler(
     Ny = paddle.arange(img_shape)
     grid = paddle.stack(paddle.meshgrid(Nx, Ny, indexing="ij"), axis=0)[
         None,
-    ].expand(b, -1, -1, -1)
+    ].expand([b, -1, -1, -1])
 
     # conditioning = [mean_hr, img_lr, global_lr, pos_embd]
     batch_size = img_lr.shape[0]
@@ -415,7 +415,7 @@ def stochastic_sampler(
         ).int()
 
     # Main sampling loop.
-    x_next = latents.to(paddle.float64) * t_steps[0]
+    x_next = latents * t_steps[0]
     for i, (t_cur, t_next) in enumerate(zip(t_steps[:-1], t_steps[1:])):  # 0, ..., N-1
         x_cur = x_next
         # Increase noise temporarily.
@@ -441,7 +441,7 @@ def stochastic_sampler(
             x_hat_batch = x_hat
         denoised = net(
             x_hat_batch, x_lr, t_hat, class_labels, global_index=global_index
-        ).to(paddle.float64)
+        )
         if patch_shape != img_shape:
             denoised = image_fuse(
                 denoised,
@@ -471,7 +471,7 @@ def stochastic_sampler(
                 )
             else:
                 x_next_batch = x_next
-            denoised = net(x_next_batch, x_lr, t_next, class_labels).to(paddle.float64)
+            denoised = net(x_next_batch, x_lr, t_next, class_labels)
             if patch_shape != img_shape:
                 denoised = image_fuse(
                     denoised,

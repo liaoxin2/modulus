@@ -100,35 +100,53 @@ def process(i, path, n_ensemble):
         dim=dim,
     )
 
-    metrics = (
-        xr.concat([a, b, c, crps_mean], dim="metric")
-        .assign_coords(metric=["rmse", "crps", "std_dev", "mae"])
-        .load()
-    )
-    return metrics
+    for var_name in a.data_vars:
+
+        # 将 dask array 转为 NumPy array
+        # value = b[var_name].values[i]
+
+        # 打印变量名和它的值
+        print(
+            "var_name",
+            var_name,
+            a[var_name].values[i],
+            b[var_name].values[i],
+            c[var_name].values[i],
+            crps_mean[var_name].values[i],
+        )
+
+    # metrics = (
+    #     xr.concat([a, b, c, crps_mean], dim="metric")
+    #     .assign_coords(metric=["rmse", "crps", "std_dev", "mae"])
+    #     .load()
+    # )
+    # return metrics
 
 
 def main(path: str, output: str, n_ensemble: int == -1):
 
     truth, pred, root = open_samples(path)
+    for i in range(5):
+        process(i, path=path, n_ensemble=n_ensemble)
+    exit()
 
-    with multiprocessing.Pool(32) as pool:
-        metrics = []
-        for metric in tqdm.tqdm(
-            pool.imap(
-                partial(process, path=path, n_ensemble=n_ensemble),
-                range(truth.sizes["time"]),
-            ),
-            total=truth.sizes["time"],
-        ):
-            metrics.append(metric)
+    # with multiprocessing.Pool(32) as pool:
+    #     metrics = []
+    #     for metric in tqdm.tqdm(
+    #         pool.imap(
+    #             partial(process, path=path, n_ensemble=n_ensemble),
+    #             range(truth.sizes["time"]),
+    #         ),
+    #         total=truth.sizes["time"],
+    #     ):
+    #         metrics.append(metric)
 
-    metrics = xr.concat(metrics, dim="time")
-    metrics.attrs["n_ensemble"] = n_ensemble
+    # metrics = xr.concat(metrics, dim="time")
+    # metrics.attrs["n_ensemble"] = n_ensemble
 
     # to netcdf with single threaded scheduler to avoid deadlocks
-    with dask.config.set(scheduler="single-threaded"):
-        metrics.to_netcdf(output, mode="w")
+    # with dask.config.set(scheduler="single-threaded"):
+    #     metrics.to_netcdf(output, mode="w")
 
 
 if __name__ == "__main__":
