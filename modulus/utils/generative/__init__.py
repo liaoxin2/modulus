@@ -18,7 +18,7 @@ from .deterministic_sampler import deterministic_sampler
 from .stochastic_sampler import image_batching, image_fuse, stochastic_sampler
 from .utils import (
     EasyDict,
-    InfiniteSampler,
+    InfiniteDataLoader,
     StackedRandomGenerator,
     assert_shape,
     call_func_by_name,

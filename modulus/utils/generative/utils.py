@@ -34,6 +34,7 @@ from typing import Any, List, Tuple, Union
 import cftime
 import numpy as np
 import paddle
+from paddle import io
 
 # ruff: noqa: E722 PERF203 S110 E713 S324
 
@@ -539,49 +540,32 @@ def profiled_function(fn):
 # indefinitely, shuffling items as it goes.
 
 
-class InfiniteSampler(paddle.io.Sampler):
-    """
-    Sampler for torch.utils.data.DataLoader that loops over the dataset
-    indefinitely, shuffling items as it goes.
+class InfiniteDataLoader:
+    """A wrapper for infinite dataloader.
+
+    Args:
+        dataloader (Union[io.DataLoader, io.IterableDataset]): A finite and iterable loader or iterable dataset to be wrapped.
     """
 
-    def __init__(
-        self, dataset, rank=0, num_replicas=1, shuffle=True, seed=0, window_size=0.5
-    ):
-        if not len(dataset) > 0:
-            raise ValueError("Dataset must contain at least one item")
-        if not num_replicas > 0:
-            raise ValueError("num_replicas must be positive")
-        if not 0 <= rank < num_replicas:
-            raise ValueError("rank must be non-negative and less than num_replicas")
-        if not 0 <= window_size <= 1:
-            raise ValueError("window_size must be between 0 and 1")
-        super().__init__()
-        self.dataset = dataset
-        self.rank = rank
-        self.num_replicas = num_replicas
-        self.shuffle = shuffle
-        self.seed = seed
-        self.window_size = window_size
+    def __init__(self, dataloader: Union[io.DataLoader, io.IterableDataset]):
+        self.dataloader = dataloader
+        if isinstance(dataloader, io.DataLoader):
+            self.dataset = dataloader.dataset
+        elif isinstance(dataloader, io.IterableDataset):
+            self.dataset = dataloader
+        else:
+            raise TypeError(
+                f"dataloader should be io.DataLoader or io.IterableDataset, but got {type(dataloader)}"
+            )
 
     def __iter__(self):
-        order = np.arange(len(self.dataset))
-        rnd = None
-        window = 0
-        if self.shuffle:
-            rnd = np.random.RandomState(self.seed)
-            rnd.shuffle(order)
-            window = int(np.rint(order.size * self.window_size))
-
-        idx = 0
         while True:
-            i = idx % order.size
-            if idx % self.num_replicas == self.rank:
-                yield order[i]
-            if window >= 2:
-                j = (i - rnd.randint(window)) % order.size
-                order[i], order[j] = order[j], order[i]
-            idx += 1
+            dataloader_iter = iter(self.dataloader)
+            for batch in dataloader_iter:
+                yield batch
+
+    def __len__(self):
+        return len(self.dataloader)
 
 
 # ----------------------------------------------------------------------------

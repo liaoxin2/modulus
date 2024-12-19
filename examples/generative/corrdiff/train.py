@@ -314,7 +314,7 @@ def main(cfg: DictConfig) -> None:
             current_lr = cfg.training.hp.lr * min(cur_nimg / lr_rampup, 1)
         if cur_nimg >= lr_rampup:
             current_lr *= cfg.training.hp.lr_decay ** ((cur_nimg - lr_rampup) // 5e6)
-
+        optimizer.set_lr(current_lr)
         if dist.get_rank() == 0:
             writer.add_scalar("learning_rate", current_lr, cur_nimg)
         handle_and_clip_gradients(

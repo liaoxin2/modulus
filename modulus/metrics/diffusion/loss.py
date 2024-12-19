@@ -514,13 +514,14 @@ class ResLoss:
         ].expand([b, -1, -1, -1])
 
         # form residual
-        y_mean = self.unet(
-            paddle.zeros_like(y),
-            y_lr_res,
-            sigma,
-            labels,
-            augment_labels=augment_labels,
-        )
+        with paddle.no_grad():
+            y_mean = self.unet(
+                paddle.zeros_like(y),
+                y_lr_res,
+                sigma,
+                labels,
+                augment_labels=augment_labels,
+            )
 
         y = y - y_mean
 

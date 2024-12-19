@@ -18,7 +18,7 @@
 hp:
     training_duration: 200000000
     # Training duration based on the number of processed samples
-    total_batch_size: 64
+    total_batch_size: 32
     # Total batch size
     batch_size_per_gpu: 2
     # Batch size per GPU
@@ -28,7 +28,7 @@ hp:
     # no gradient clipping for defualt non-patch-based training
     lr_decay: 1
     # LR decay rate
-    lr_rampup: 1000000
+    lr_rampup: 10000000
     # Rampup for learning rate, in number of samples
 
 # Performance

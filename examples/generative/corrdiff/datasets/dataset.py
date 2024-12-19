@@ -19,7 +19,7 @@ import paddle
 from typing import Iterable, Tuple, Union
 import copy
 
-from modulus.utils.generative import InfiniteSampler
+from modulus.utils.generative import InfiniteDataLoader
 from modulus.distributed import DistributedManager
 
 from . import base, cwb, hrrrmini, npy
@@ -136,30 +136,46 @@ def init_dataset_from_config_npy(
     dataset_obj = dataset_init_func(**dataset_cfg)
 
     if "vaild_size" in dataset_cfg:
-        val_size = int(len(dataset_obj) * dataset_cfg["vaild_size"])
-        train_size = len(dataset_obj) - val_size
-        train_dataset, val_dataset = paddle.io.random_split(
-            dataset_obj, [train_size, val_size]
+        # val_size = int(len(dataset_obj) * dataset_cfg["vaild_size"])
+        # train_size = len(dataset_obj) - val_size
+        # train_dataset, val_dataset = paddle.io.random_split(
+        #     dataset_obj, [train_size, val_size]
+        # )
+        train_dataset = dataset_obj
+
+        data_file = "/public/home/huanggang/data/lpy/GFSCOLO2002661.npy"
+        labels_file = "/public/home/huanggang/data/lpy/UV10110001.npy"
+        val_dataset = dataset_init_func(data_file, labels_file)
+        dataset_length = len(val_dataset)
+        val_size = int(dataset_length * 0.5)
+        val_dataset = paddle.io.Subset(
+            val_dataset, list(range(val_size, dataset_length))
         )
 
         if dataloader_cfg is None:
             dataloader_cfg = {}
 
         dataset_iterator = iter(
-            paddle.io.DataLoader(
-                dataset=dataset_obj,
-                batch_size=batch_size,
-                worker_init_fn=None,
-                **dataloader_cfg,
+            InfiniteDataLoader(
+                paddle.io.DataLoader(
+                    dataset=train_dataset,
+                    batch_size=batch_size,
+                    worker_init_fn=None,
+                    shuffle=True,
+                    **dataloader_cfg,
+                )
             )
         )
 
         val_iterator = iter(
-            paddle.io.DataLoader(
-                dataset=val_dataset,
-                batch_size=batch_size,
-                worker_init_fn=None,
-                **dataloader_cfg,
+            InfiniteDataLoader(
+                paddle.io.DataLoader(
+                    dataset=val_dataset,
+                    batch_size=batch_size,
+                    worker_init_fn=None,
+                    shuffle=True,
+                    **dataloader_cfg,
+                )
             )
         )
 
