@@ -43,10 +43,10 @@ perf:
 
 # I/O
 io:
-    regression_checkpoint_path: /public/home/huanggang/Baidu/paddle/modulus/examples/generative/corrdiff/conf/regression.pdparams
+    regression_checkpoint_path: ./checkpoints_regression/model.pdparams
     # Where to load the regression checkpoint
-    reg_json: /public/home/huanggang/Baidu/paddle/modulus/examples/generative/corrdiff/conf/r_args.json
-    print_progress_freq: 1000
+    reg_json: ./checkpoints_regression/args.json
+    print_progress_freq: 1
     # How often to print progress
     save_checkpoint_freq: 30000
     # How often to save the checkpoints, measured in number of processed samples

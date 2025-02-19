@@ -107,11 +107,14 @@ def init_dataset_from_config(
         dataloader_cfg = {}
 
     dataset_iterator = iter(
-        paddle.io.DataLoader(
-            dataset=dataset_obj,
-            batch_size=batch_size,
-            worker_init_fn=None,
-            **dataloader_cfg,
+        InfiniteDataLoader(
+            paddle.io.DataLoader(
+                dataset=dataset_obj,
+                batch_size=batch_size,
+                worker_init_fn=None,
+                shuffle=True,
+                **dataloader_cfg,
+            )
         )
     )
 
@@ -136,20 +139,10 @@ def init_dataset_from_config_npy(
     dataset_obj = dataset_init_func(**dataset_cfg)
 
     if "vaild_size" in dataset_cfg:
-        # val_size = int(len(dataset_obj) * dataset_cfg["vaild_size"])
-        # train_size = len(dataset_obj) - val_size
-        # train_dataset, val_dataset = paddle.io.random_split(
-        #     dataset_obj, [train_size, val_size]
-        # )
-        train_dataset = dataset_obj
-
-        data_file = "/public/home/huanggang/data/lpy/GFSCOLO2002661.npy"
-        labels_file = "/public/home/huanggang/data/lpy/UV10110001.npy"
-        val_dataset = dataset_init_func(data_file, labels_file)
-        dataset_length = len(val_dataset)
-        val_size = int(dataset_length * 0.5)
-        val_dataset = paddle.io.Subset(
-            val_dataset, list(range(val_size, dataset_length))
+        val_size = int(len(dataset_obj) * dataset_cfg["vaild_size"])
+        train_size = len(dataset_obj) - val_size
+        train_dataset, val_dataset = paddle.io.random_split(
+            dataset_obj, [train_size, val_size]
         )
 
         if dataloader_cfg is None:

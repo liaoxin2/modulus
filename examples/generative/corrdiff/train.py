@@ -16,7 +16,7 @@
 
 import sys
 
-sys.path.append("/public/home/huanggang/Baidu/paddle/modulus")
+sys.path.append("/public/home/huanggang/Baidu/test/modulus")
 import os
 import paddle
 import json
@@ -99,9 +99,10 @@ def main(cfg: DictConfig) -> None:
     )
 
     # Parse image configuration & update model args
-    img_in_channels = dataset_cfg["in_channels"]
-    img_shape = [dataset_cfg["img_shape_x"], dataset_cfg["img_shape_y"]]
-    img_out_channels = dataset_cfg["out_channels"]
+    dataset_channels = len(dataset.input_channels())
+    img_in_channels = dataset_channels
+    img_shape = dataset.image_shape()
+    img_out_channels = len(dataset.output_channels())
 
     if cfg.model.hr_mean_conditioning:
         img_in_channels += img_out_channels
@@ -258,9 +259,10 @@ def main(cfg: DictConfig) -> None:
         for _ in range(num_accumulation_rounds):
             img_clean, img_lr, labels = next(dataset_iterator)
             img_clean = paddle.to_tensor(img_clean, dtype="float32")
-            img_clean = paddle.transpose(img_clean, perm=[0, 3, 1, 2])
             img_lr = paddle.to_tensor(img_lr, dtype="float32")
-            img_lr = paddle.transpose(img_lr, perm=[0, 3, 1, 2])
+            if cfg.dataset.type == 'npy':
+                img_clean = paddle.transpose(img_clean, perm=[0, 3, 1, 2])
+                img_lr = paddle.transpose(img_lr, perm=[0, 3, 1, 2])
             labels = paddle.to_tensor(labels, dtype="float32")
             with paddle.amp.auto_cast(dtype=amp_dtype, enable=enable_amp):
                 loss = loss_fn(
@@ -344,12 +346,10 @@ def main(cfg: DictConfig) -> None:
                         img_clean_valid = paddle.to_tensor(
                             img_clean_valid, dtype="float32"
                         )
-                        img_clean_valid = paddle.transpose(
-                            img_clean_valid, perm=[0, 3, 1, 2]
-                        )
-
                         img_lr_valid = paddle.to_tensor(img_lr_valid, dtype="float32")
-                        img_lr_valid = paddle.transpose(img_lr_valid, perm=[0, 3, 1, 2])
+                        if cfg.dataset.type == 'npy':
+                            img_clean_valid = paddle.transpose(img_clean_valid, perm=[0, 3, 1, 2])
+                            img_lr_valid = paddle.transpose(img_lr_valid, perm=[0, 3, 1, 2])
 
                         labels_valid = labels_valid.to(paddle.get_device()).contiguous()
                         loss_valid = loss_fn(

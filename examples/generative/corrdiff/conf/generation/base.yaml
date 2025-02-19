@@ -57,7 +57,9 @@ perf:
     # To support multiple workers a threadsafe version of the netCDF library must be used
 
 io:
-  res_ckpt_filename: /workspace/workspace/modulus/examples/generative/corrdiff/corrdiff_inference_package/checkpoints/diffusion.mdlus
+    res_ckpt_filename: ./checkpoints_diffusion/model.pdparams
     # Checkpoint filename for the diffusion model  
-  reg_ckpt_filename: /workspace/workspace/modulus/examples/generative/corrdiff/corrdiff_inference_package/checkpoints/regression.mdlus
+  reg_ckpt_filename: ./checkpoints_regression/model.pdparams
     # Checkpoint filename for the mean predictor model
+  res_json: ./checkpoints_diffusion/args.json
+  reg_json: ./checkpoints_regression/args.json

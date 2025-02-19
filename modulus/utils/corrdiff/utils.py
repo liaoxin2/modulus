@@ -96,7 +96,7 @@ def diffusion_step(  # TODO generalize the module and add defaults
 
     # Handling of the high-res mean
     additional_args = {}
-    if hr_mean:
+    if hr_mean is not None:
         additional_args["mean_hr"] = hr_mean
 
     # Loop over batches
@@ -113,8 +113,8 @@ def diffusion_step(  # TODO generalize the module and add defaults
                 [
                     seed_batch_size,
                     img_out_channels,
-                    img_shape[1],
                     img_shape[0],
+                    img_shape[1],
                 ],
             )  # .to(memory_format=paddle.channels_last)
 
@@ -143,8 +143,11 @@ class NetCDFWriter:
         f.createDimension("time")
         f.createDimension("ensemble")
 
-        ny = lat
-        nx = lon
+        if isinstance(lat, int) and isinstance(lon, int):
+            ny = lat
+            nx = lon
+        else:
+            ny, nx = lat.shape
 
         # create lat/lon grid
         f.createDimension("x", nx)
@@ -169,7 +172,10 @@ class NetCDFWriter:
         self.input_group = f.createGroup("input")
 
         for variable in output_channels:
-            name = variable
+            if isinstance(lat, int):
+                name = variable
+            else:
+                name = variable.name + variable.level
             self.truth_group.createVariable(name, "f", dimensions=("time", "y", "x"))
             self.prediction_group.createVariable(
                 name, "f", dimensions=("ensemble", "time", "y", "x")
@@ -178,7 +184,10 @@ class NetCDFWriter:
         # setup input data in netCDF
 
         for variable in input_channels:
-            name = variable
+            if isinstance(lat, int):
+                name = variable
+            else:
+                name = variable.name + variable.level
             self.input_group.createVariable(name, "f", dimensions=("time", "y", "x"))
 
     def write_input(self, channel_name, time_index, val):

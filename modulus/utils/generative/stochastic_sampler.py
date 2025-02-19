@@ -384,7 +384,7 @@ def stochastic_sampler(
     batch_size = img_lr.shape[0]
     x_lr = img_lr
     if mean_hr is not None:
-        x_lr = paddle.concat((mean_hr.expand(x_lr.shape[0], -1, -1, -1), x_lr), axis=1)
+        x_lr = paddle.concat((mean_hr.expand([x_lr.shape[0], -1, -1, -1]), x_lr), axis=1)
     global_index = None
 
     # input and position padding + patching

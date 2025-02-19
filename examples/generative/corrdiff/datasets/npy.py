@@ -88,7 +88,7 @@ class NpyDataset(Dataset):
 
     def image_shape(self) -> Tuple[int, int]:
         """Get the (height, width) of the data (same for input and output)."""
-        return (266, 200)
+        return (200, 266)
 
     def denormalize_input(self, x: np.ndarray) -> np.ndarray:
         """Convert input from normalized data to physical units."""

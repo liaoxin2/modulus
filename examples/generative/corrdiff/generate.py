@@ -17,7 +17,7 @@
 import sys
 import os
 
-sys.path.append("/public/home/huanggang/Baidu/paddle/modulus/")
+sys.path.append("/public/home/huanggang/Baidu/test/modulus/")
 import paddle
 import hydra
 from omegaconf import OmegaConf, DictConfig
@@ -174,7 +174,7 @@ def main(cfg: DictConfig) -> None:
 
     # Main generation definition
     def generate_fn():
-        img_shape_y, img_shape_x = img_shape
+        img_shape_x, img_shape_y = img_shape
         with nvtx.annotate("generate_fn", color="green"):
             if cfg.generation.sample_res == "full":
                 image_lr_patch = image_lr
@@ -197,8 +197,8 @@ def main(cfg: DictConfig) -> None:
                         latents_shape=(
                             cfg.generation.seed_batch_size,
                             img_out_channels,
-                            img_shape[1],
                             img_shape[0],
+                            img_shape[1],
                         ),
                     )
             if net_res:
@@ -311,9 +311,10 @@ def main(cfg: DictConfig) -> None:
 
         # continue
         image_lr = paddle.to_tensor(image_lr, dtype="float32")
-        image_lr = paddle.transpose(image_lr, perm=[0, 3, 1, 2])
         image_tar = paddle.to_tensor(image_tar, dtype="float32")
-        image_tar = paddle.transpose(image_tar, perm=[0, 3, 1, 2])
+        if cfg.dataset.type == 'npy':
+            image_tar = paddle.transpose(image_tar, perm=[0, 3, 1, 2])
+            image_lr = paddle.transpose(image_lr, perm=[0, 3, 1, 2])
         image_out = generate_fn()
 
         if dist.get_rank() == 0:

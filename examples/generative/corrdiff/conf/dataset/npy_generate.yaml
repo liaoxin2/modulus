@@ -15,8 +15,8 @@
 # limitations under the License.
 
 type: npy
-data_file: /public/home/huanggang/data/lpy/GFSCOLO2002661.npy
-labels_file: /public/home/huanggang/data/lpy/UV10110001.npy
+data_file: ./data/lpy/GFSCOLO2002661.npy
+labels_file: ./data/lpy/UV10110001.npy
 in_channels: 14
 out_channels: 2
 img_shape_x: 200
